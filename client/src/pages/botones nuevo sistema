@@ -1,0 +1,152 @@
+// TODO add your handling code here:
+
+        // Variable para el Código
+        String sCodigo;
+
+        // Valida que esté seleccionado  un dato
+        if (tblProductos.getSelectedRow() >= 0) {
+            try {
+                // Variable para el modelo de la tabla
+                DefaultTableModel tblDatos = (DefaultTableModel) tblProductos.getModel();
+
+                // Obtengo el Codigo de la celda
+                sCodigo = tblDatos.getValueAt(tblProductos.getSelectedRow(), 0).toString();
+
+                // Declaro la variable para la forma de ABC Productos
+                H_AgregarProducto2 frmProductosABC = new H_AgregarProducto2(null, true);
+
+                // Muestra la Forma
+                frmProductosABC.setTitle(frmProductosABC.getTitle() + "-Editar");
+                frmProductosABC.setCodigo(sCodigo);
+                frmProductosABC.fnBoolProductoExiste(true);
+                frmProductosABC.desHabilitarTxtCodigoProducto();
+                frmProductosABC.desHabilitarDatos();
+                frmProductosABC.BloquearBtnLimpiar();
+                frmProductosABC.setVisible(true);
+
+            } catch (SQLException ex) {
+                Logger.getLogger(F_Menu_producto.class.getName()).log(Level.SEVERE, null, ex);
+            }
+        } else {
+            oFunc.SubSistemaMensaje("Seleccione un Producto");
+        }
+
+
+
+
+    /////////////////////////***************************/
+
+
+    gbc.gridy++;
+    JButton btnModificar = new JButton("Mofificar");
+    btnModificar.setFont(new Font("Segoe UI", Font.PLAIN, 9));
+    btnModificar.setBackground(new Color(74, 144, 226));
+    btnModificar.setForeground(Color.WHITE);
+    btnModificar.setBorder(BorderFactory.createEmptyBorder(6, 12, 6, 12));
+    btnModificar.setFocusPainted(false);
+    btnModificar.setCursor(new Cursor(Cursor.HAND_CURSOR));
+
+    // MODIFICAR ESTA LÍNEA - Pasar el código del producto específico
+    btnModificar.addActionListener(e -> abrirFormularioEdicion(producto.getStrProductoCodigo()));
+        panelSecundario.add(btnModificar);    
+    panelInfo.add(btnModificar, gbc);
+    
+    
+
+// Método para abrir el formulario de edición
+private void abrirFormularioEdicion(String codigoProducto) {
+    try {
+        // Declaro la variable para la forma de ABC Productos
+        H_AgregarProducto2 frmProductosABC = new H_AgregarProducto2(null, true);
+
+        // Muestra la Forma
+        frmProductosABC.setTitle(frmProductosABC.getTitle() + " - Editar");
+        frmProductosABC.setCodigo(codigoProducto);
+        frmProductosABC.fnBoolProductoExiste(true);
+        frmProductosABC.desHabilitarTxtCodigoProducto();
+        frmProductosABC.desHabilitarDatos();
+        frmProductosABC.BloquearBtnLimpiar();
+        frmProductosABC.setVisible(true);
+
+        // Opcional: Refrescar las tarjetas después de editar
+       // refrescarTarjetas();
+
+    } catch (SQLException ex) {
+        Logger.getLogger(F_Menu_producto.class.getName()).log(Level.SEVERE, null, ex);
+        oFunc.SubSistemaMensaje("Error al abrir el formulario de edición");
+    }
+}
+
+
+
+botnes uno debajo del otro     
+
+
+
+
+// Botón de Modificar
+    gbc.gridy++;
+    gbc.insets = new Insets(8, 0, 0, 0);
+    JButton btnModificar = new JButton("Modificar");
+    btnModificar.setFont(new Font("Segoe UI", Font.PLAIN, 9));
+    btnModificar.setBackground(new Color(74, 144, 226));
+    btnModificar.setForeground(Color.WHITE);
+    btnModificar.setBorder(BorderFactory.createEmptyBorder(6, 12, 6, 12));
+    btnModificar.setFocusPainted(false);
+    btnModificar.setCursor(new Cursor(Cursor.HAND_CURSOR));
+    btnModificar.addActionListener(e -> abrirFormularioEdicion(producto.getStrProductoCodigo()));
+    
+    // Efecto hover para el botón Modificar
+    btnModificar.addMouseListener(new java.awt.event.MouseAdapter() {
+        public void mouseEntered(java.awt.event.MouseEvent evt) {
+            btnModificar.setBackground(new Color(65, 131, 215));
+        }
+        public void mouseExited(java.awt.event.MouseEvent evt) {
+            btnModificar.setBackground(new Color(74, 144, 226));
+        }
+    });
+    
+    // Centrar el botón Modificar
+    JPanel panelBoton = new JPanel(new FlowLayout(FlowLayout.CENTER, 0, 0));
+    panelBoton.setBackground(colorFondo);
+    panelBoton.add(btnModificar);
+    panelInfo.add(panelBoton, gbc);
+    
+    
+    
+    
+
+    // Botón de Eliminar
+    gbc.gridy++;
+    gbc.insets = new Insets(8, 0, 0, 0);
+    JButton btnEliminar= new JButton("Eliminar");
+    btnEliminar.setFont(new Font("Segoe UI", Font.PLAIN, 9));
+    btnEliminar.setBackground(new Color(74, 144, 226));
+    btnEliminar.setForeground(Color.WHITE);
+    btnEliminar.setBorder(BorderFactory.createEmptyBorder(6, 12, 6, 12));
+    btnEliminar.setFocusPainted(false);
+    btnEliminar.setCursor(new Cursor(Cursor.HAND_CURSOR));
+    btnEliminar.addActionListener(e -> abrirFormularioEdicion(producto.getStrProductoCodigo()));
+    
+    // Efecto hover para el botón Modificar
+    btnEliminar.addMouseListener(new java.awt.event.MouseAdapter() {
+        public void mouseEntered(java.awt.event.MouseEvent evt) {
+            btnEliminar.setBackground(new Color(65, 131, 215));
+        }
+        public void mouseExited(java.awt.event.MouseEvent evt) {
+            btnEliminar.setBackground(new Color(74, 144, 226));
+        }
+    });
+    
+    // Centrar el botón Modificar
+    JPanel panelBoton2 = new JPanel(new FlowLayout(FlowLayout.CENTER, 0, 0));
+    panelBoton2.setBackground(colorFondo);
+    panelBoton2.add(btnEliminar);
+    panelInfo.add(panelBoton2, gbc);
+    
+    
+    
+    
+    
+    
+    

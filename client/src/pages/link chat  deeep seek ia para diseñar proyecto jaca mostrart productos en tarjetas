@@ -1,0 +1,2187 @@
+https://chat.deepseek.com/share/jubjrijjfbe0kb0b3l
+
+
+
+
+
+import net.sf.jasperreports.view.JasperViewer;
+import java.awt.Color;
+import java.awt.Image;
+import java.sql.SQLException;
+import javax.swing.ImageIcon;
+import javax.swing.SwingConstants;
+import java.io.IOException;
+import java.sql.ResultSet;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+import javax.swing.JOptionPane;
+import javax.swing.JTable;
+import javax.swing.table.DefaultTableModel;
+import javax.swing.*;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import java.io.ByteArrayInputStream;
+import java.sql.Blob;
+import javax.imageio.ImageIO;
+
+
+
+
+public class F_Menu_producto_Tiendas_Bodega extends javax.swing.JDialog {
+
+    // Variable para las funciones propias
+    clsFunciones oFunc = new clsFunciones();
+    clsConnection oConn = new clsConnection();
+    clsGlobales oGlobal = new clsGlobales();
+    clsExportarExcel obj;
+    Busqueda_avanzada fin;
+    
+        // Nuevas variables para el modo de visualización
+        private String modoVisualizacion = "lista"; // "lista" o "grid"
+        private JPanel pnlGridContainer;
+        private JScrollPane pnlGrid;
+        private List<Producto> productosActuales;        
+        private CardLayout cardLayout;
+        private JPanel cardPanel;
+        private boolean vistaListaActiva = true; // Controla qué vista está activa
+    
+    
+public F_Menu_producto_Tiendas_Bodega(java.awt.Frame parent, boolean modal) {
+    
+    
+        // Inicialización de la Forma    
+       // super(parent, modal);
+        initComponents();
+        
+        actualizarEstadoBotones();
+        configurarLayoutPersonalizado();
+        
+        
+        // En la sección de declaración de componentes:
+        btnVistaGrid = new javax.swing.JButton();
+        btnVistaLista = new javax.swing.JButton(); // NUEVO BOTÓN
+        
+                try {
+                    ImageIcon iconoLista = new ImageIcon(getClass().getResource("/iconos/icons8-lista-25.png"));
+                    Image imgLista = iconoLista.getImage().getScaledInstance(20, 20, Image.SCALE_SMOOTH);
+                    btnVistaLista.setIcon(new ImageIcon(imgLista));
+                } catch (Exception e) {
+                    System.out.println("No se pudo cargar icono lista, usando texto: " + e.getMessage());
+                    btnVistaLista.setText("📋");
+                }
+                btnVistaLista.setBackground(new java.awt.Color(70, 130, 180)); // Azul activo
+                btnVistaLista.setFont(new java.awt.Font("Segoe UI", 1, 12));
+                btnVistaLista.setForeground(new java.awt.Color(255, 255, 255));
+                btnVistaLista.setText("");
+                btnVistaLista.setFocusable(false);
+                btnVistaLista.setHorizontalAlignment(javax.swing.SwingConstants.LEFT);
+                btnVistaLista.setIconTextGap(10);
+                btnVistaLista.addActionListener(new java.awt.event.ActionListener() {
+                    public void actionPerformed(java.awt.event.ActionEvent evt) {
+                        btnVistaListaActionPerformed(evt);
+                    }
+                });
+
+                // Configurar botón Vista Grid con imagen
+                try {
+                    ImageIcon iconoGrid = new ImageIcon(getClass().getResource("/iconos/icons8-miniaturas-25.png"));
+                    Image imgGrid = iconoGrid.getImage().getScaledInstance(20, 20, Image.SCALE_SMOOTH);
+                    btnVistaGrid.setIcon(new ImageIcon(imgGrid));
+                } catch (Exception e) {
+                    System.out.println("No se pudo cargar icono grid, usando texto: " + e.getMessage());
+                    btnVistaGrid.setText("⏹️");
+                }
+                btnVistaGrid.setBackground(new java.awt.Color(200, 200, 200)); // Gris inactivo
+                btnVistaGrid.setFont(new java.awt.Font("Segoe UI", 1, 12));
+                btnVistaGrid.setForeground(new java.awt.Color(255, 255, 255));
+                btnVistaGrid.setText("");
+                btnVistaGrid.setFocusable(false);
+                btnVistaGrid.setHorizontalAlignment(javax.swing.SwingConstants.LEFT);
+                btnVistaGrid.setIconTextGap(10);
+                btnVistaGrid.addActionListener(new java.awt.event.ActionListener() {
+                    public void actionPerformed(java.awt.event.ActionEvent evt) {
+                        btnVistaGridActionPerformed(evt);
+                    }
+                });
+        
+        // Al final de initComponents() o en el constructor
+       activarVistaLista(); // Establecer vista lista como predeterminada
+        
+        Image icon = new ImageIcon(getClass().getResource("iconos/icONOtCAD.png")).getImage();
+        this.setIconImage(icon);
+
+        // Maximiza la Ventana
+        this.setSize(this.getToolkit().getScreenSize());
+        setLocationRelativeTo(null);
+        
+           // Inicializar componentes para grid
+        //inicializarComponentesGrid();
+        
+        
+        // Formate la tabla y Carga los Productos
+        sbTablaProductosFormat();
+
+        // Cargar productos inicialmente
+        cargarProductosIniciales();
+        
+        configurarBotonVista();
+        
+        setTitle("Productos - Solo con Existencia");
+       
+    }
+
+
+
+private void inicializarComponentesGrid() {
+    System.out.println("Inicializando componentes grid con WrapLayout...");
+    
+    pnlGridContainer = new JPanel();
+    
+    // USAR WRAPLAYOUT PERSONALIZADO CON ESPACIOS MÁS PEQUEÑOS
+    pnlGridContainer.setLayout(new WrapLayout(FlowLayout.LEFT, 10, 10)); // Espacios reducidos
+    
+    pnlGridContainer.setBackground(Color.WHITE);
+    pnlGridContainer.setPreferredSize(new Dimension(1200, 2000));
+    
+    pnlGrid = new JScrollPane(pnlGridContainer);
+    pnlGrid.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
+    pnlGrid.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+    pnlGrid.setPreferredSize(new Dimension(1200, 600));
+    
+    System.out.println("Grid inicializado con WrapLayout");
+}
+
+private void configurarLayoutPersonalizado() {
+    System.out.println("Configurando layout personalizado...");
+    
+    // 1. Cambiar el layout del content pane a BorderLayout
+    getContentPane().setLayout(new BorderLayout());
+    
+    // 2. Crear un panel para los botones
+    JPanel panelBotones = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 10));
+    panelBotones.setBackground(Color.WHITE);
+    panelBotones.setPreferredSize(new Dimension(1200, 70)); // Altura fija
+    
+    // 3. Configurar tamaño del txtBuscar
+    txtBuscar.setPreferredSize(new Dimension(300, 35));
+    
+    // 4. Agregar todos los componentes al panel de botones
+    panelBotones.add(btnVistaGrid);
+    panelBotones.add(btnVistaLista);
+    panelBotones.add(txtBuscar);
+    //panelBotones.add(btnVerTodo);
+    panelBotones.add(btnProductoAdd);
+    panelBotones.add(btnProductoUpd);
+    panelBotones.add(btnProductoDel);
+    panelBotones.add(btnCancelar);
+    //panelBotones.add(btnExportarEcxel);
+    //panelBotones.add(btnCBarras);
+    
+    // 5. Agregar el panel de botones en la parte superior
+    getContentPane().add(panelBotones, BorderLayout.NORTH);
+    
+    // 6. Inicializar CardLayout para el área principal
+    inicializarCardLayout();
+    
+    System.out.println("Layout personalizado configurado correctamente");
+}
+    
+private void inicializarCardLayout() {
+    System.out.println("Inicializando CardLayout...");
+    
+    // Inicializar CardLayout CORRECTAMENTE
+    cardLayout = new CardLayout();
+    cardPanel = new JPanel(cardLayout); // CardLayout maneja las vistas
+    
+    // Inicializar componentes grid si no están inicializados
+    if (pnlGrid == null) {
+        inicializarComponentesGrid();
+    }
+    
+    // AGREGAR COMPONENTES AL CARDPANEL CON NOMBRES (CORRECTO PARA CARDLAYOUT)
+    cardPanel.add(pnlProductos, "lista");
+    cardPanel.add(pnlGrid, "grid");
+    
+    // Agregar cardPanel al centro del BorderLayout PRINCIPAL
+    getContentPane().add(cardPanel, BorderLayout.CENTER);
+    
+    // Mostrar vista inicial
+    cardLayout.show(cardPanel, "lista");
+    
+    System.out.println("CardLayout inicializado correctamente");
+}
+    
+  // Clase para layout de grid con wrap
+class WrapLayout extends FlowLayout {
+        public WrapLayout() {
+            super();
+        }
+
+        public WrapLayout(int align) {
+            super(align);
+        }
+
+        public WrapLayout(int align, int hgap, int vgap) {
+            super(align, hgap, vgap);
+        }
+
+        @Override
+        public Dimension preferredLayoutSize(Container target) {
+            return layoutSize(target, true);
+        }
+
+        @Override
+        public Dimension minimumLayoutSize(Container target) {
+            return layoutSize(target, false);
+        }
+
+        private Dimension layoutSize(Container target, boolean preferred) {
+            synchronized (target.getTreeLock()) {
+                int targetWidth = target.getSize().width;
+                if (targetWidth == 0) {
+                    targetWidth = Integer.MAX_VALUE;
+                }
+
+                int hgap = getHgap();
+                int vgap = getVgap();
+                Insets insets = target.getInsets();
+                int maxWidth = targetWidth - (insets.left + insets.right + hgap * 2);
+
+                Dimension dim = new Dimension(0, 0);
+                int rowWidth = 0;
+                int rowHeight = 0;
+
+                int nmembers = target.getComponentCount();
+
+                for (int i = 0; i < nmembers; i++) {
+                    Component m = target.getComponent(i);
+                    if (m.isVisible()) {
+                        Dimension d = preferred ? m.getPreferredSize() : m.getMinimumSize();
+                        if (rowWidth + d.width > maxWidth) {
+                            dim.width = Math.max(dim.width, rowWidth);
+                            dim.height += rowHeight + vgap;
+                            rowWidth = 0;
+                            rowHeight = 0;
+                        }
+                        if (rowWidth != 0) {
+                            rowWidth += hgap;
+                        }
+                        rowWidth += d.width;
+                        rowHeight = Math.max(rowHeight, d.height);
+                    }
+                }
+                dim.width = Math.max(dim.width, rowWidth);
+                dim.height += rowHeight;
+
+                dim.width += insets.left + insets.right + hgap * 2;
+                dim.height += insets.top + insets.bottom + vgap * 2;
+
+                return dim;
+            }
+        }
+    }
+  
+
+// Cargar productos inicialmente
+private void cargarProductosIniciales() {
+    try {
+        System.out.println("Cargando productos iniciales...");
+        productosActuales = traerTodosProductos();
+        System.out.println("Productos cargados: " + (productosActuales != null ? productosActuales.size() : "null"));
+        
+        // Verificar imágenes
+        verificarImagenesProductos();
+        
+        // ... resto del código igual
+    } catch (SQLException ex) {
+        System.out.println("Error al cargar productos: " + ex.getMessage());
+        oFunc.SubSistemaMensaje("Error al cargar productos: " + ex.getMessage());
+    }
+}      
+    
+private void mostrarVistaGrid() {
+    System.out.println("=== MOSTRAR VISTA GRID ===");
+    
+    if (pnlGridContainer == null) {
+        System.out.println("ERROR: pnlGridContainer es null");
+        return;
+    }
+    
+    // Limpiar container
+    pnlGridContainer.removeAll();
+
+    // VERIFICAR que hay productos para mostrar
+    if (productosActuales == null || productosActuales.isEmpty()) {
+        System.out.println("No hay productos para mostrar en grid");
+        JLabel lblVacio = new JLabel("No hay productos para mostrar");
+        lblVacio.setHorizontalAlignment(SwingConstants.CENTER);
+        lblVacio.setFont(new Font("Dialog", Font.BOLD, 16));
+        lblVacio.setForeground(Color.GRAY);
+        lblVacio.setPreferredSize(new Dimension(400, 100));
+        pnlGridContainer.add(lblVacio);
+    } else {
+        // MOSTRAR productos (limitado para buen rendimiento)
+        int limite = Math.min(100, productosActuales.size()); // Aumentado a 100
+        System.out.println("Mostrando " + limite + " de " + productosActuales.size() + " productos en grid");
+        
+        for (int i = 0; i < limite; i++) {
+            Producto producto = productosActuales.get(i);
+            JPanel tarjeta = crearTarjetaProducto(producto);
+            pnlGridContainer.add(tarjeta);
+        }
+    }
+    
+    // ACTUALIZAR
+    pnlGridContainer.revalidate();
+    pnlGridContainer.repaint();
+    
+    System.out.println("Grid actualizado - Componentes: " + pnlGridContainer.getComponentCount());
+}
+
+private JPanel crearTarjetaProducto(Producto producto) {
+    JPanel tarjeta = new JPanel();
+    tarjeta.setLayout(new BorderLayout());
+    
+    // COLOR DE FONDO SUTIL PARA PRODUCTOS CON EXISTENCIA
+    Color colorFondo = Color.WHITE;
+    int existencia = 0;
+    try {
+        existencia = Integer.parseInt(producto.getIntProductoActual());
+        if (existencia > 0) {
+            // Fondo muy sutil verde claro para productos con existencia
+            colorFondo = new Color(245, 255, 245);
+        }
+    } catch (NumberFormatException e) {
+        existencia = 0;
+    }
+    
+    // TARJETA MÁS ALTA PARA LA IMAGEN
+    tarjeta.setPreferredSize(new Dimension(220, 240));
+    tarjeta.setMinimumSize(new Dimension(200, 230));
+    
+    // Borde moderno
+    tarjeta.setBorder(BorderFactory.createCompoundBorder(
+        BorderFactory.createLineBorder(new Color(225, 225, 225), 1),
+        BorderFactory.createEmptyBorder(8, 8, 8, 8)
+    ));
+    
+    tarjeta.setBackground(colorFondo);
+    tarjeta.setOpaque(true);
+
+    // PANEL SUPERIOR PARA LA IMAGEN (MÁS GRANDE)
+    JPanel panelImagen = new JPanel(new BorderLayout());
+    panelImagen.setPreferredSize(new Dimension(200, 110));
+    panelImagen.setBackground(new Color(245, 245, 245));
+    
+    // Cargar y mostrar la imagen
+    JLabel lblImagen = crearLabelImagen(producto);
+    panelImagen.add(lblImagen, BorderLayout.CENTER);
+    
+    // PANEL INFERIOR PARA LA INFORMACIÓN
+    JPanel panelInfo = new JPanel(new GridBagLayout());
+    panelInfo.setBackground(colorFondo);
+    GridBagConstraints gbc = new GridBagConstraints();
+    gbc.fill = GridBagConstraints.HORIZONTAL;
+    gbc.anchor = GridBagConstraints.NORTHWEST;
+    gbc.weightx = 1.0;
+    gbc.insets = new Insets(3, 3, 3, 3);
+
+    // Nombre del producto
+    gbc.gridx = 0;
+    gbc.gridy = 0;
+    JLabel lblNombre = new JLabel("<html><div style='text-align:center; width: 180px;'>" + 
+                                 truncarTexto(producto.getStrProductoNombre(), 24) + "</div></html>");
+    lblNombre.setFont(new Font("Segoe UI", Font.BOLD, 11));
+    lblNombre.setHorizontalAlignment(SwingConstants.CENTER);
+    panelInfo.add(lblNombre, gbc);
+
+    // Precio destacado
+    gbc.gridy++;
+    JLabel lblPrecio = new JLabel("<html><div style='text-align:center; color: #2E86AB;'><b>Q" + 
+                                 producto.getDecProductoPrecio() + "</b></div></html>");
+    lblPrecio.setFont(new Font("Segoe UI", Font.BOLD, 13));
+    lblPrecio.setHorizontalAlignment(SwingConstants.CENTER);
+    panelInfo.add(lblPrecio, gbc);
+
+    // Badge de existencia
+    gbc.gridy++;
+    JLabel lblBadgeExistencia = new JLabel();
+    String colorFondoBadge = "#dc3545"; // Rojo por defecto (sin existencia)
+    String colorTextoBadge = "white";
+    
+    if (existencia > 10) {
+        colorFondoBadge = "#28a745"; // Verde para buena existencia
+        colorTextoBadge = "white";
+    } else if (existencia > 0) {
+        colorFondoBadge = "#ffc107"; // Amarillo para existencia baja
+        colorTextoBadge = "black";
+    }
+    
+    lblBadgeExistencia.setText("<html><div style='background: " + colorFondoBadge + "; color: " + colorTextoBadge + 
+                              "; padding: 3px 8px; border-radius: 12px; font-size: 9px; font-weight: bold;'>" +
+                              "🏪 " + existencia + " unidades</div></html>");
+    lblBadgeExistencia.setHorizontalAlignment(SwingConstants.CENTER);
+    panelInfo.add(lblBadgeExistencia, gbc);
+
+    // Información secundaria compacta
+    gbc.gridy++;
+    JPanel panelSecundario = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 0));
+    panelSecundario.setBackground(colorFondo);
+    
+    // Código corto si es posible
+    String codigo = producto.getStrProductoCodigo();
+    if (codigo.length() > 8) {
+        codigo = codigo.substring(0, 8) + "...";
+    }
+    
+    JLabel lblCodigo = new JLabel("🔖 " + codigo);
+    lblCodigo.setFont(new Font("Segoe UI", Font.PLAIN, 8));
+    lblCodigo.setForeground(new Color(86, 98, 112));
+    panelSecundario.add(lblCodigo);
+    
+    panelInfo.add(panelSecundario, gbc);
+
+    // Botón de detalles
+    gbc.gridy++;
+    gbc.insets = new Insets(8, 0, 0, 0);
+    JButton btnDetalles = new JButton("Ver Detalles");
+    btnDetalles.setFont(new Font("Segoe UI", Font.PLAIN, 9));
+    btnDetalles.setBackground(new Color(74, 144, 226));
+    btnDetalles.setForeground(Color.WHITE);
+    btnDetalles.setBorder(BorderFactory.createEmptyBorder(6, 12, 6, 12));
+    btnDetalles.setFocusPainted(false);
+    btnDetalles.setCursor(new Cursor(Cursor.HAND_CURSOR));
+    btnDetalles.addActionListener(e -> mostrarDetallesProducto(producto));
+    
+    // Efecto hover para el botón
+    btnDetalles.addMouseListener(new java.awt.event.MouseAdapter() {
+        public void mouseEntered(java.awt.event.MouseEvent evt) {
+            btnDetalles.setBackground(new Color(65, 131, 215));
+        }
+        public void mouseExited(java.awt.event.MouseEvent evt) {
+            btnDetalles.setBackground(new Color(74, 144, 226));
+        }
+    });
+    
+    // Centrar el botón
+    JPanel panelBoton = new JPanel(new FlowLayout(FlowLayout.CENTER, 0, 0));
+    panelBoton.setBackground(colorFondo);
+    panelBoton.add(btnDetalles);
+    panelInfo.add(panelBoton, gbc);
+
+    // Agregar todos los paneles a la tarjeta
+    tarjeta.add(panelImagen, BorderLayout.NORTH);
+    tarjeta.add(panelInfo, BorderLayout.CENTER);
+    
+    return tarjeta;
+}  
+    
+// Truncar texto largo
+ private String truncarTexto(String texto, int longitud) {
+        if (texto == null) return "";
+        if (texto.length() <= longitud) return texto;
+        return texto.substring(0, longitud) + "...";
+    }
+
+// Mostrar detalles del producto - Versión Minimalista Moderna con botón personalizado
+private void mostrarDetallesProducto(Producto producto) {
+    // Cargar imagen para el diálogo desde BLOB
+    ImageIcon imagenGrande = cargarImagenParaDialogo(producto);
+    
+    String mensaje = "<html>" +
+        "<head>" +
+        "<style>" +
+        "body { font-family: 'Segoe UI', Arial, sans-serif; margin: 0; padding: 0; color: #2c3e50; }" +
+        ".container { width: 420px; background: #ffffff; border-radius: 16px; padding: 0; overflow: hidden; }" +
+        ".header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; text-align: center; }" +
+        ".header h3 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: 0.8px; }" +
+        ".content { padding: 24px; }" +
+        ".imagen-container { text-align: center; margin-bottom: 20px; padding: 10px; background: #f8f9fa; border-radius: 12px; }" +
+        ".info-grid { display: grid; grid-template-columns: 1fr; gap: 12px; }" +
+        ".info-item { display: flex; justify-content: space-between; align-items: flex-start; padding: 12px 0; }" +
+        ".info-item:not(:last-child) { border-bottom: 1px solid #ecf0f1; }" +
+        ".label { font-weight: 600; color: #7f8c8d; font-size: 12px; text-transform: uppercase; letter-spacing: 0.8px; min-width: 100px; }" +
+        ".value { font-weight: 500; color: #2c3e50; font-size: 13px; text-align: right; flex: 1; margin-left: 15px; }" +
+        ".highlight-section { background: linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%); padding: 16px; border-radius: 12px; margin: 16px 0; }" +
+        ".highlight-item { display: flex; justify-content: space-between; color: #2c3e50; }" +
+        ".section { background: #f8f9fa; padding: 16px; border-radius: 12px; margin: 12px 0; }" +
+        ".icon { margin-right: 8px; }" +
+        "</style>" +
+        "</head>" +
+        "<body>" +
+        "<div class='container'>" +
+        "<div class='header'>" +
+        "<h3>📦 DETALLES DEL PRODUCTO</h3>" +
+        "</div>" +
+        
+        "<div class='content'>" +
+        
+        "<div class='imagen-container'>" +
+        (imagenGrande != null ? 
+         "<img src='" + ((ImageIcon)imagenGrande).getImage() + "' width='150' height='150' style='border-radius: 8px; border: 2px solid #e9ecef;'/>" :
+         "<div style='color: #6C757D; font-size: 14px;'>📷<br>Imagen no disponible</div>") +
+        "</div>" +
+        
+        "<div class='section'>" +
+        "<div class='info-grid'>" +
+        "<div class='info-item'>" +
+        "<span class='label'><span class='icon'>🔖</span>Código</span>" +
+        "<span class='value'>" + producto.getStrProductoCodigo() + "</span>" +
+        "</div>" +
+        "<div class='info-item'>" +
+        "<span class='label'><span class='icon'>📝</span>Nombre</span>" +
+        "<span class='value'>" + producto.getStrProductoNombre() + "</span>" +
+        "</div>" +
+        "<div class='info-item'>" +
+        "<span class='label'><span class='icon'>📋</span>Descripción</span>" +
+        "<span class='value'>" + producto.getStrProductoDescripcion() + "</span>" +
+        "</div>" +
+        "<div class='info-item'>" +
+        "<span class='label'><span class='icon'>📏</span>Medida</span>" +
+        "<span class='value'>" + producto.getStrProductoMedida() + "</span>" +
+        "</div>" +
+        "</div>" +
+        "</div>" +
+        
+        "<div class='highlight-section'>" +
+        "<div class='highlight-item'>" +
+        "<span class='label'><span class='icon'>🏪</span>Existencia</span>" +
+        "<span class='value'><strong>" + producto.getIntProductoActual() + " unidades</strong></span>" +
+        "</div>" +
+        "<div class='highlight-item'>" +
+        "<span class='label'><span class='icon'>💰</span>Precio</span>" +
+        "<span class='value'><strong>Q" + producto.getDecProductoPrecio() + "</strong></span>" +
+        "</div>" +
+        "</div>" +
+        
+        "<div class='section'>" +
+        "<div class='info-grid'>" +
+        "<div class='info-item'>" +
+        "<span class='label'><span class='icon'>🏢</span>Proveedor</span>" +
+        "<span class='value'>" + producto.getStrProveedorNombre() + "</span>" +
+        "</div>" +
+        "<div class='info-item'>" +
+        "<span class='label'><span class='icon'>📂</span>Tipo</span>" +
+        "<span class='value'>" + producto.getStrTipoProducto() + "</span>" +
+        "</div>" +
+        "</div>" +
+        "</div>" +
+        "</div>" +
+        "</div>" +
+        "</body>" +
+        "</html>";
+    
+    // Botón personalizado (igual que antes)
+    JButton okButton = new JButton("Aceptar");
+    okButton.setBackground(new Color(74, 144, 226));
+    okButton.setForeground(Color.WHITE);
+    okButton.setFont(new Font("Segoe UI", Font.BOLD, 12));
+    okButton.setBorder(BorderFactory.createEmptyBorder(10, 30, 10, 30));
+    okButton.setFocusPainted(false);
+    okButton.setCursor(new Cursor(Cursor.HAND_CURSOR));
+    
+    okButton.addMouseListener(new java.awt.event.MouseAdapter() {
+        public void mouseEntered(java.awt.event.MouseEvent evt) {
+            okButton.setBackground(new Color(65, 131, 215));
+        }
+        public void mouseExited(java.awt.event.MouseEvent evt) {
+            okButton.setBackground(new Color(74, 144, 226));
+        }
+    });
+    
+    Object[] options = {okButton};
+    JOptionPane.showOptionDialog(this, mensaje, " ",
+                                JOptionPane.DEFAULT_OPTION, JOptionPane.INFORMATION_MESSAGE,
+                                null, options, options[0]);
+}     
+
+private void configurarBotonVista() {
+    
+    
+    // ELIMINAR cualquier ActionListener existente primero
+    for (ActionListener al : btnVistaGrid.getActionListeners()) {
+        btnVistaGrid.removeActionListener(al);
+    }
+    
+btnVistaGrid.addActionListener(new java.awt.event.ActionListener() {
+    public void actionPerformed(java.awt.event.ActionEvent evt) {
+        cambiarAVistaGrid();
+    }
+});
+
+btnVistaLista.addActionListener(new java.awt.event.ActionListener() {
+    public void actionPerformed(java.awt.event.ActionEvent evt) {
+        cambiarAVistaLista();
+    }
+});
+
+}
+
+private void activarVistaLista() {
+    vistaListaActiva = true;
+    
+    // Actualizar apariencia de botones
+    btnVistaLista.setBackground(new java.awt.Color(70, 130, 180)); // Azul activo
+    btnVistaLista.setForeground(Color.WHITE);
+    
+    btnVistaGrid.setBackground(new java.awt.Color(200, 200, 200)); // Gris inactivo
+    btnVistaGrid.setForeground(Color.BLACK);
+    
+    // Lógica para cambiar a vista lista
+    cambiarAVistaLista();
+}
+
+private void activarVistaGrid() {
+    vistaListaActiva = false;
+    
+    // Actualizar apariencia de botones
+    btnVistaGrid.setBackground(new java.awt.Color(70, 130, 180)); // Azul activo
+    btnVistaGrid.setForeground(Color.WHITE);
+    
+    btnVistaLista.setBackground(new java.awt.Color(200, 200, 200)); // Gris inactivo
+    btnVistaLista.setForeground(Color.BLACK);
+    
+    // Lógica para cambiar a vista grid
+    cambiarAVistaGrid();
+}
+
+private void cambiarAVistaGrid() {
+    System.out.println("=== CAMBIANDO A VISTA GRID ===");
+    
+    try {
+        // 1. OBTENER CONTENEDOR PRINCIPAL
+        Container contentPane = getContentPane();
+        
+        // 2. QUITAR TODOS LOS COMPONENTES
+        contentPane.removeAll();
+        
+        // 3. CREAR PANEL DE BOTONES NUEVO
+        JPanel panelBotones = crearPanelBotones();
+        contentPane.add(panelBotones, BorderLayout.NORTH);
+        
+        // 4. AGREGAR EL GRID AL CENTRO
+        if (pnlGrid == null) {
+            inicializarComponentesGrid();
+        }
+        contentPane.add(pnlGrid, BorderLayout.CENTER);
+        
+        // 5. ACTUALIZAR
+        contentPane.revalidate();
+        contentPane.repaint();
+        
+        // 6. CARGAR PRODUCTOS EN GRID
+        mostrarVistaGrid();
+        
+        // 7. ACTUALIZAR ESTADO DE BOTONES
+        modoVisualizacion = "grid";
+        actualizarEstadoBotones();
+        
+        System.out.println("Cambiado a vista GRID exitosamente");
+        
+    } catch (Exception e) {
+        System.out.println("Error en cambiarAVistaGrid: " + e.getMessage());
+        e.printStackTrace();
+    }
+}
+
+private void cambiarAVistaLista() {
+    System.out.println("=== CAMBIANDO A VISTA LISTA ===");
+    
+    try {
+        // 1. OBTENER CONTENEDOR PRINCIPAL
+        Container contentPane = getContentPane();
+        
+        // 2. QUITAR TODOS LOS COMPONENTES
+        contentPane.removeAll();
+        
+        // 3. CREAR PANEL DE BOTONES NUEVO
+        JPanel panelBotones = crearPanelBotones();
+        contentPane.add(panelBotones, BorderLayout.NORTH);
+        
+        // 4. AGREGAR LA TABLA AL CENTRO
+        if (pnlProductos == null) {
+            System.out.println("ERROR: pnlProductos es null, recreando...");
+            pnlProductos = new JScrollPane();
+            tblProductos = new JTable();
+            pnlProductos.setViewportView(tblProductos);
+            sbTablaProductosFormat();
+        }
+        
+        pnlProductos.setVisible(true);
+        contentPane.add(pnlProductos, BorderLayout.CENTER);
+        
+        // 5. ACTUALIZAR LA TABLA
+        if (productosActuales != null && !productosActuales.isEmpty()) {
+            System.out.println("Actualizando tabla con " + productosActuales.size() + " productos");
+            limpiarTabla(tblProductos);
+            llenarTablaConProductos(productosActuales);
+        } else {
+            System.out.println("No hay productos para mostrar en la tabla");
+            limpiarTabla(tblProductos);
+        }
+        
+        // 6. ACTUALIZAR ESTADO DE BOTONES
+        modoVisualizacion = "lista";
+        actualizarEstadoBotones();
+        
+        // 7. FORZAR ACTUALIZACIÓN
+        contentPane.revalidate();
+        contentPane.repaint();
+        
+        System.out.println("Cambiado a vista LISTA exitosamente");
+        
+    } catch (Exception e) {
+        System.out.println("Error en cambiarAVistaLista: " + e.getMessage());
+        e.printStackTrace();
+    }
+}
+
+private JPanel crearPanelBotones() {
+    JPanel panelBotones = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 10));
+    panelBotones.setBackground(Color.WHITE);
+    panelBotones.setPreferredSize(new Dimension(1200, 70));
+    
+    // Configurar txtBuscar
+    txtBuscar.setPreferredSize(new Dimension(300, 35));
+    
+    // ELIMINAR ActionListeners existentes para evitar duplicados
+    for (ActionListener al : btnVerTodo.getActionListeners()) {
+        btnVerTodo.removeActionListener(al);
+    }
+    
+    // AGREGAR NUEVO ActionListener para "Ver todo"
+    btnVerTodo.addActionListener(new ActionListener() {
+        public void actionPerformed(ActionEvent evt) {
+            reiniciarBusqueda();
+        }
+    });
+    
+    // Agregar componentes
+    panelBotones.add(btnVistaLista);
+    panelBotones.add(btnVistaGrid);
+    panelBotones.add(txtBuscar);
+    panelBotones.add(btnVerTodo);
+    panelBotones.add(btnProductoAdd);
+    panelBotones.add(btnProductoUpd);
+    panelBotones.add(btnProductoDel);
+    panelBotones.add(btnCancelar);
+    panelBotones.add(btnExportarEcxel);
+    panelBotones.add(btnCBarras);
+    
+    // Actualizar estado inicial de los botones
+    actualizarEstadoBotones();
+    
+    return panelBotones;
+}
+
+private void reiniciarBusqueda() {
+    try {
+        productosActuales = traerTodosProductos(); // Ya filtra por existencia
+        txtBuscar.setText("");
+        
+        if (modoVisualizacion.equals("lista")) {
+            limpiarTabla(tblProductos);
+            llenarTablaConProductos(productosActuales);
+        } else {
+            mostrarVistaGrid();
+        }
+        
+        System.out.println("Búsqueda reiniciada - Productos con existencia: " + productosActuales.size());
+    } catch (SQLException ex) {
+        oFunc.SubSistemaMensaje("Error al reiniciar búsqueda: " + ex.getMessage());
+    }
+}
+
+//Método para convertir bytes a ImageIcon
+private ImageIcon bytesToImageIcon(byte[] imagenBytes) {
+    if (imagenBytes == null || imagenBytes.length == 0) {
+        return null;
+    }
+    
+    try {
+        // Método más directo y confiable
+        ByteArrayInputStream bis = new ByteArrayInputStream(imagenBytes);
+        Image imagen = ImageIO.read(bis);
+        bis.close();
+        
+        if (imagen != null) {
+            return new ImageIcon(imagen);
+        }
+    } catch (Exception e) {
+        System.out.println("Error convirtiendo bytes a imagen: " + e.getMessage());
+        e.printStackTrace();
+    }
+    return null;
+}
+
+//Actualizar crearLabelImagen
+private JLabel crearLabelImagen(Producto producto) {
+    JLabel labelImagen = new JLabel();
+    labelImagen.setHorizontalAlignment(SwingConstants.CENTER);
+    labelImagen.setVerticalAlignment(SwingConstants.CENTER);
+    labelImagen.setPreferredSize(new Dimension(180, 100)); // Tamaño fijo para la imagen
+    labelImagen.setMinimumSize(new Dimension(180, 100));
+    labelImagen.setOpaque(true);
+    labelImagen.setBackground(new Color(245, 245, 245)); // Fondo gris claro
+    labelImagen.setBorder(BorderFactory.createCompoundBorder(
+        BorderFactory.createLineBorder(new Color(220, 220, 220), 1),
+        BorderFactory.createEmptyBorder(2, 2, 2, 2)
+    ));
+    
+    System.out.println("Cargando imagen para: " + producto.getStrProductoNombre());
+    System.out.println("Bytes de imagen: " + (producto.getImagen() != null ? producto.getImagen().length : "null"));
+    
+    // Cargar imagen desde bytes de la base de datos
+    ImageIcon imagenProducto = null;
+    if (producto.getImagen() != null && producto.getImagen().length > 100) { // Mínimo 100 bytes para ser una imagen válida
+        imagenProducto = bytesToImageIcon(producto.getImagen());
+        System.out.println("Imagen convertida: " + (imagenProducto != null ? "ÉXITO" : "FALLÓ"));
+    }
+    
+    if (imagenProducto != null) {
+        // Redimensionar la imagen manteniendo aspect ratio
+        Image imgOriginal = imagenProducto.getImage();
+        int anchoOriginal = imgOriginal.getWidth(null);
+        int altoOriginal = imgOriginal.getHeight(null);
+        
+        System.out.println("Dimensiones originales: " + anchoOriginal + "x" + altoOriginal);
+        
+        // Calcular nuevo tamaño manteniendo proporción
+        int maxAncho = 160;
+        int maxAlto = 80;
+        
+        int nuevoAncho = anchoOriginal;
+        int nuevoAlto = altoOriginal;
+        
+        if (anchoOriginal > maxAncho) {
+            nuevoAncho = maxAncho;
+            nuevoAlto = (altoOriginal * maxAncho) / anchoOriginal;
+        }
+        
+        if (nuevoAlto > maxAlto) {
+            nuevoAlto = maxAlto;
+            nuevoAncho = (anchoOriginal * maxAlto) / altoOriginal;
+        }
+        
+        System.out.println("Dimensiones redimensionadas: " + nuevoAncho + "x" + nuevoAlto);
+        
+        // Redimensionar la imagen
+        Image imgRedimensionada = imgOriginal.getScaledInstance(nuevoAncho, nuevoAlto, Image.SCALE_SMOOTH);
+        ImageIcon iconoRedimensionado = new ImageIcon(imgRedimensionada);
+        
+        labelImagen.setIcon(iconoRedimensionado);
+        labelImagen.setText(""); // Limpiar texto
+        labelImagen.setToolTipText(producto.getStrProductoNombre());
+        
+    } else {
+        // Mostrar placeholder si no hay imagen
+        System.out.println("Mostrando placeholder para: " + producto.getStrProductoNombre());
+        labelImagen.setIcon(null);
+        labelImagen.setText("<html><div style='text-align:center; color: #888; padding: 10px;'>" +
+                           "<div style='font-size: 24px;'>📷</div>" +
+                           "<div style='font-size: 10px; margin-top: 5px;'>Sin Imagen</div>" +
+                           "</div></html>");
+        labelImagen.setFont(new Font("Segoe UI", Font.PLAIN, 10));
+    }
+    
+    return labelImagen;
+}
+
+//Método mejorado para el diálogo de detalles
+private ImageIcon cargarImagenParaDialogo(Producto producto) {
+    if (producto.getImagen() != null && producto.getImagen().length > 0) {
+        ImageIcon imagenOriginal = bytesToImageIcon(producto.getImagen());
+        if (imagenOriginal != null) {
+            // Redimensionar para el diálogo (más grande)
+            Image img = imagenOriginal.getImage();
+            Image imgRedimensionada = img.getScaledInstance(150, 150, Image.SCALE_SMOOTH);
+            return new ImageIcon(imgRedimensionada);
+        }
+    }
+    return null;
+}
+
+class Panel extends JPanel {
+    public Panel() {
+        super();
+    }
+}
+
+private void verificarImagenesProductos() {
+    if (productosActuales != null) {
+        System.out.println("=== VERIFICACIÓN DE IMÁGENES ===");
+        int conImagen = 0;
+        int sinImagen = 0;
+        
+        for (int i = 0; i < Math.min(10, productosActuales.size()); i++) {
+            Producto p = productosActuales.get(i);
+            if (p.getImagen() != null && p.getImagen().length > 100) {
+                conImagen++;
+                System.out.println("✅ " + p.getStrProductoNombre() + " - Bytes: " + p.getImagen().length);
+            } else {
+                sinImagen++;
+                System.out.println("❌ " + p.getStrProductoNombre() + " - Sin imagen válida");
+            }
+        }
+        System.out.println("Total con imagen: " + conImagen + ", Sin imagen: " + sinImagen);
+        System.out.println("=================================");
+    }
+}
+
+
+private void sbProductosCargaFiltroGRidLista(String cad) {
+    try {
+        List<Producto> productosFiltrados;
+        List<Producto> productos = traerTodosProductos(); // Ya filtra por existencia
+
+        if (cad != null && !cad.isEmpty() && productos != null && !productos.isEmpty()) {
+            Busqueda_avanzada busqueda = new Busqueda_avanzada();
+            productosFiltrados = busqueda.findText(cad, productos, Boolean.FALSE);
+        } else {
+            productosFiltrados = productos;
+        }
+
+        productosActuales = productosFiltrados;
+        
+        if (modoVisualizacion.equals("lista")) {
+            limpiarTabla(tblProductos);
+            llenarTablaConProductos(productosFiltrados);
+            System.out.println("Tabla actualizada con " + productosFiltrados.size() + " productos con existencia");
+        } else {
+            mostrarVistaGrid();
+            System.out.println("Grid actualizado con " + productosFiltrados.size() + " productos con existencia");
+        }
+    } catch (SQLException ex) {
+        oFunc.SubSistemaMensaje("Error en búsqueda: " + ex.getMessage().toString());
+    }
+}
+
+private void sbProductosCargaFiltro2(String cad) {
+    // Variable para el Query
+    String sQuery;
+    int iCuenta;
+    int iMaxRows;
+    
+    // Variable para el modelo de la tabla
+    DefaultTableModel tblDatos = (DefaultTableModel) tblProductos.getModel();
+    
+    // Obtiene el Número de Datos
+    iMaxRows = tblDatos.getRowCount();
+    
+    // Ciclo para Borrar
+    for (iCuenta=0; iCuenta<iMaxRows;iCuenta++)
+         tblDatos.removeRow(0);
+    
+    // Prepara los datos vacios iniciales
+    Object [] oFila = new Object[20];
+    
+    // Prepara el Query - FILTRAR POR EXISTENCIA
+    sQuery = "SELECT strProductoCodigo,strProductoNombre,strProductoDescripcion,"
+            + "strProductoMedida,intProductoInicial, intInventariominimo, intProductoEntradas, intProductoSalidas, "
+            + "intProductoActual, intProductoActual_bodega, decProductoCosto, decProductoPrecio, decProductoPrecio2, decProductoPrecio3, "
+            + "strProveedorNombre,dateVencimiento, strTipoProducto, strMarca,"
+            + "strComponente, imagen FROM tblProductos WHERE "
+            + "CONCAT(strProductoDescripcion,' ',strProductoCodigo)"
+            + "LIKE '%"+cad+"%' AND intProductoActual > 0"; // FILTRO POR EXISTENCIA
+    
+    System.out.println("Consulta con filtro existencia: " + sQuery);
+              
+    //Ejecuta el Query
+    oConn.FnBoolQueryExecute(sQuery);
+    
+    // Capturo el Error
+    try {
+        // Verifico que haya habido resultados
+        iCuenta=0;
+        while (oConn.setResult.next())
+        {
+            // Obtengo los datos en el Objeto Fila
+            oFila[0]=oConn.setResult.getString("strProductoCodigo");
+            oFila[1]=oConn.setResult.getString("strProductoNombre");                
+            oFila[2]=oConn.setResult.getString("strProductoDescripcion");
+            oFila[3]=oConn.setResult.getString("strProductoMedida");
+            oFila[4]=oConn.setResult.getString("intProductoInicial");
+            oFila[5]=oConn.setResult.getString("intInventariominimo");
+            oFila[6]=oConn.setResult.getString("intProductoEntradas");
+            oFila[7]=oConn.setResult.getString("intProductoSalidas");
+            oFila[8]=oConn.setResult.getString("intProductoActual");
+            oFila[9]=oConn.setResult.getString("intProductoActual_bodega");
+            oFila[10]=oConn.setResult.getString("decProductoCosto");
+            oFila[11]=oConn.setResult.getString("decProductoPrecio");
+            oFila[12]=oConn.setResult.getString("decProductoPrecio2");
+            oFila[13]=oConn.setResult.getString("decProductoPrecio3");
+            oFila[14]=oConn.setResult.getString("strProveedorNombre");
+            oFila[15]=oConn.setResult.getString("strTipoProducto");
+            oFila[16]=oConn.setResult.getString("strMarca");                
+            oFila[17]=oConn.setResult.getString("dateVencimiento");
+            oFila[18]=oConn.setResult.getString("strComponente");
+                            
+            // Agrega el Dato
+            tblDatos.addRow(oFila);
+            iCuenta++;
+        }
+        
+        System.out.println("Productos cargados con existencia: " + iCuenta);
+        
+    // Cierro los Resultados
+    oConn.setResult.close();
+            
+    } catch (SQLException ex) {
+        oFunc.SubSistemaMensaje("sbProductosCargaFiltro2:"+ex.getMessage().toString());
+    }
+    
+    // Coloca el Modelo de Nueva Cuenta
+   tblProductos.setModel(tblDatos);
+}
+
+
+private void actualizarEstadoBotones() {
+    if (modoVisualizacion.equals("lista")) {
+        // Lista activa, Grid inactiva
+        btnVistaLista.setBackground(new Color(0, 156, 223)); // Azul activo
+        btnVistaLista.setForeground(Color.WHITE);
+        btnVistaLista.setEnabled(false); // Deshabilitar el botón activo
+        
+        btnVistaGrid.setBackground(new Color(220, 220, 220)); // Gris inactivo
+        btnVistaGrid.setForeground(Color.BLACK);
+        btnVistaGrid.setEnabled(true); // Habilitar el botón inactivo
+        
+    } else {
+        // Grid activa, Lista inactiva
+        btnVistaLista.setBackground(new Color(220, 220, 220)); // Gris inactivo
+        btnVistaLista.setForeground(Color.BLACK);
+        btnVistaLista.setEnabled(true); // Habilitar el botón inactivo
+        
+        btnVistaGrid.setBackground(new Color(0, 156, 223));;    // Verde activo
+        btnVistaGrid.setForeground(Color.WHITE);
+        btnVistaGrid.setEnabled(false); // Deshabilitar el botón activo
+    }
+}
+    
+
+
+
+
+////////////////////////////////////////**************///////////////////////////////////////////////////////////  
+
+
+
+
+
+
+    
+// Procedimiento para dar formato a la Tabla
+    
+    private void sbTablaProductosFormat() {
+
+        // Declaro un modelo de datos
+        DefaultTableModel modelo = new DefaultTableModel();
+
+        // Añadimos columnas al modelo de datos
+        modelo.addColumn("Codigo");
+        modelo.addColumn("Nombre");
+        modelo.addColumn("Descripcion");
+        modelo.addColumn("Medida");
+        modelo.addColumn("Inicial");
+        modelo.addColumn("Inv.Minimo");
+        modelo.addColumn("Entradas");
+        modelo.addColumn("Salidas");
+        modelo.addColumn("Exist_TIENDA");
+        modelo.addColumn("Exist_BODEGA");
+        modelo.addColumn("Costo");
+        modelo.addColumn("Precio");
+        modelo.addColumn("Precio2");
+        modelo.addColumn("Precio3");
+        modelo.addColumn("Proveedor");
+        modelo.addColumn("Tipo Prod.");
+        modelo.addColumn("Marca");
+        modelo.addColumn("Fecha inicial");
+        modelo.addColumn("Area");
+
+        // Coloca el Modelo en la Tabla
+        tblProductos.setModel(modelo);
+
+        // Establezco los anchos de las columnas
+        TableColumn tblColumn = tblProductos.getColumn("Codigo");
+        tblColumn.setPreferredWidth(120);
+
+        // Nombre Corto
+        tblColumn = tblProductos.getColumn("Nombre");
+        tblColumn.setPreferredWidth(125);
+
+        // Nombre invertari minimo
+        tblColumn = tblProductos.getColumn("Inv.Minimo");
+        tblColumn.setPreferredWidth(75);
+
+        // Nombre largo
+        tblColumn = tblProductos.getColumn("Descripcion");
+        tblColumn.setPreferredWidth(225);
+
+        // Directamente
+        tblProductos.getColumn("Medida").setPreferredWidth(50);
+
+        DefaultTableCellRenderer cellAlinear = new DefaultTableCellRenderer();
+        DefaultTableCellRenderer cellAlinear2 = new DefaultTableCellRenderer();
+        DefaultTableCellRenderer cellAlinear3 = new DefaultTableCellRenderer();
+        DefaultTableCellRenderer cellAlinear4 = new DefaultTableCellRenderer();
+        DefaultTableCellRenderer cellAlinear5 = new DefaultTableCellRenderer();
+
+        // Asignamos el Alineamiento Horizontal a la derecha
+        cellAlinear.setHorizontalAlignment(SwingConstants.RIGHT);
+        cellAlinear2.setHorizontalAlignment(SwingConstants.CENTER);
+        cellAlinear3.setHorizontalAlignment(SwingConstants.CENTER);
+        cellAlinear4.setHorizontalAlignment(SwingConstants.RIGHT);
+        cellAlinear2.setBackground(new java.awt.Color(255,255,0));
+        cellAlinear3.setBackground(new java.awt.Color(51,255,51));
+        cellAlinear4.setBackground(new java.awt.Color(204,204,204));
+        cellAlinear4.setForeground(new java.awt.Color(0,0,0));
+        cellAlinear3.setForeground(Color.BLACK);
+
+        // Asignamos la Variable de celda de alineamiento a cada una de las columnas a alinear
+        tblProductos.getColumnModel().getColumn(4).setCellRenderer(cellAlinear);
+        tblProductos.getColumnModel().getColumn(5).setCellRenderer(cellAlinear);
+        tblProductos.getColumnModel().getColumn(6).setCellRenderer(cellAlinear);
+        tblProductos.getColumnModel().getColumn(7).setCellRenderer(cellAlinear);
+        tblProductos.getColumnModel().getColumn(8).setCellRenderer(cellAlinear3);
+        tblProductos.getColumnModel().getColumn(9).setCellRenderer(cellAlinear2);
+        tblProductos.getColumnModel().getColumn(10).setCellRenderer(cellAlinear);
+        tblProductos.getColumnModel().getColumn(10).setCellRenderer(cellAlinear4);
+        tblProductos.getColumnModel().getColumn(11).setCellRenderer(cellAlinear4);
+        tblProductos.getColumnModel().getColumn(12).setCellRenderer(cellAlinear4);
+        tblProductos.getColumnModel().getColumn(13).setCellRenderer(cellAlinear4);
+
+        // Color de los Encabezados
+        
+       
+        
+        tblProductos.setRowHeight(25);
+        tblProductos.getTableHeader().setBackground(new java.awt.Color(0,0,0));
+        tblProductos.getTableHeader().setForeground(Color.white);
+        tblProductos.getTableHeader().setFont(new java.awt.Font("Dialog", 0, 10));
+        tblProductos.setFont(new java.awt.Font("Dialog", 0, 10));
+        cellAlinear4.setFont(new java.awt.Font("Dialog", 0, 10));
+
+    }
+
+    private void sbProductosCargaFiltroInicio(String cad) {
+        // Variable para el Query
+        String sQuery;
+        int iCuenta;
+        int iMaxRows;
+
+        // Variable para el modelo de la tabla
+        DefaultTableModel tblDatos = (DefaultTableModel) tblProductos.getModel();
+
+        //tblProductos.removeAll();
+        // Obtiene el Número de Datos
+        iMaxRows = tblDatos.getRowCount();
+
+        // Ciclo para Borrar
+        for (iCuenta = 0; iCuenta < iMaxRows; iCuenta++) {
+            tblDatos.removeRow(0);
+        }
+
+        // Prepara los datos vacios iniciales
+        Object[] oFila = new Object[20];
+
+        // Prepara el Query
+        sQuery = "SELECT strProductoCodigo,strProductoNombre,strProductoDescripcion,"
+                + "strProductoMedida,intProductoInicial, intInventariominimo, intProductoEntradas, intProductoSalidas, "
+                + "intProductoActual, decProductoCosto, decProductoPrecio, decProductoPrecio2, decProductoPrecio3, strProveedorNombre,dateVencimiento, strTipoProducto, strMarca,"
+                + "strComponente, intProductoActual_bodega FROM tblProductos WHERE "
+                + "CONCAT(strProductoDescripcion,' ',strProductoNombre,' ',strProductoCodigo,' ',strComponente,' ',strTipoProducto,' ',strMarca)"
+                + "LIKE '" + cad + "%'";
+
+        //Ejecuta el Query
+        oConn.FnBoolQueryExecute(sQuery);
+
+        // Capturo el Error
+        try {
+            // Verifico que haya habido resultados
+            iCuenta = 0;
+            while (oConn.setResult.next()) {
+                // Obtengo los datos en el Objeto Fila
+                oFila[0] = oConn.setResult.getString("strProductoCodigo");
+                oFila[1] = oConn.setResult.getString("strProductoNombre");
+                oFila[2] = oConn.setResult.getString("strProductoDescripcion");
+                oFila[3] = oConn.setResult.getString("strProductoMedida");
+                oFila[4] = oConn.setResult.getString("intProductoInicial");
+                oFila[5] = oConn.setResult.getString("intInventariominimo");
+                oFila[6] = oConn.setResult.getString("intProductoEntradas");
+                oFila[7] = oConn.setResult.getString("intProductoSalidas");
+                oFila[8] = oConn.setResult.getString("intProductoActual");
+                oFila[9]=oConn.setResult.getString("intProductoActual_bodega");
+                oFila[10] = oConn.setResult.getString("decProductoCosto");
+                oFila[11] = oConn.setResult.getString("decProductoPrecio");
+                oFila[12] = oConn.setResult.getString("decProductoPrecio2");
+                oFila[13] = oConn.setResult.getString("decProductoPrecio3");
+                oFila[14] = oConn.setResult.getString("strProveedorNombre");
+                oFila[15] = oConn.setResult.getString("strTipoProducto");
+                oFila[16] = oConn.setResult.getString("strMarca");
+                oFila[17] = oConn.setResult.getString("dateVencimiento");
+                oFila[18] = oConn.setResult.getString("strComponente");
+
+                // Agrega el Dato
+                tblDatos.addRow(oFila);
+                //tblDatos.setValueAt(oFila[1], iCuenta++, 1); // Cambia el valor de la fila 1, columna 2.
+            }
+
+            // Cierro los Resultados
+            oConn.setResult.close();
+
+        } catch (SQLException ex) {
+            oFunc.SubSistemaMensaje("sbProductosCarga:" + ex.getMessage().toString());
+        }
+
+        // Coloca el Modelo de Nueva Cuenta
+        tblProductos.setModel(tblDatos);
+
+        //modelo.setValueAt ("nuevo valor", 0, 1); // Cambia el valor de la fila 1, columna 2.
+        //modelo.removeRow (1); // Borra la primera fila
+    }
+
+    private void sbProductosCargaFiltro(String cad) {
+
+        limpiarTabla(tblProductos);
+        // Capturo el Error
+        try {
+            List<Producto> productosFiltrados;
+            List<Producto> productos = traerTodosProductos();
+
+            if (cad != null && !cad.isEmpty() && productos != null && !productos.isEmpty()) {
+                //busqueda
+                Busqueda_avanzada busqueda = new Busqueda_avanzada();
+                productosFiltrados = busqueda.findText(cad, productos, Boolean.FALSE);
+            } else {
+                productosFiltrados = productos;
+            }
+
+            llenarTablaConProductos(productosFiltrados);
+        } catch (SQLException ex) {
+            oFunc.SubSistemaMensaje("sbProductosCargaFiltro:" + ex.getMessage().toString());
+        }
+
+    }
+
+private List<Producto> traerTodosProductos() throws SQLException {
+    List<Producto> productos = new ArrayList<>();
+    
+    // Modificar la consulta para filtrar por existencia
+    String sQuery = "SELECT * FROM tblProductos WHERE intProductoActual > 0";
+    
+    System.out.println("Ejecutando consulta: " + sQuery);
+    
+    //Ejecuta el Query
+    oConn.FnBoolQueryExecute(sQuery);
+
+    int contador = 0;
+    while (oConn.setResult.next()) {
+        // Obtengo los datos en el Objeto Fila
+        productos.add(obtenerProductoDeResultadoConsulta(oConn.setResult));
+        contador++;
+    }
+    
+    // Cierro los Resultados
+    oConn.setResult.close();
+    
+    System.out.println("Productos con existencia encontrados: " + contador);
+    return productos;
+}
+
+   private Producto obtenerProductoDeResultadoConsulta(ResultSet resultado) throws SQLException {
+    Producto producto = new Producto();
+    producto.setStrProductoCodigo(resultado.getString("strProductoCodigo"));
+    producto.setStrProductoNombre(resultado.getString("strProductoNombre"));
+    producto.setStrProductoDescripcion(resultado.getString("strProductoDescripcion"));
+    producto.setStrProductoMedida(resultado.getString("strProductoMedida"));
+    producto.setIntProductoInicial(resultado.getString("intProductoInicial"));
+    producto.setIntInventariominimo(resultado.getString("intInventariominimo"));
+    producto.setIntProductoEntradas(resultado.getString("intProductoEntradas"));
+    producto.setIntProductoSalidas(resultado.getString("intProductoSalidas"));
+    producto.setIntProductoActual(resultado.getString("intProductoActual"));
+    producto.setIntProductoActualBodega(resultado.getString("intProductoActual_bodega")); 
+    producto.setDecProductoCosto(resultado.getString("decProductoCosto"));
+    producto.setDecProductoPrecio(resultado.getString("decProductoPrecio"));
+    producto.setDecProductoPrecio2(resultado.getString("decProductoPrecio2"));
+    producto.setDecProductoPrecio3(resultado.getString("decProductoPrecio3"));
+    producto.setStrProveedorNombre(resultado.getString("strProveedorNombre"));
+    producto.setStrTipoProducto(resultado.getString("strTipoProducto"));
+    producto.setStrMarca(resultado.getString("strMarca"));
+    producto.setDateVencimiento(resultado.getString("dateVencimiento"));
+    producto.setStrComponente(resultado.getString("strComponente"));
+    
+    // OBTENER IMAGEN DESDE LONGBLOB
+    Blob blob = resultado.getBlob("imagen");
+    if (blob != null) {
+        producto.setImagen(blob.getBytes(1, (int) blob.length()));
+    } else {
+        producto.setImagen(null);
+    }
+    
+    return producto;
+}
+
+    private void limpiarTabla(JTable tabla) {
+        DefaultTableModel tblDatos = (DefaultTableModel) tabla.getModel();
+        tblDatos.setRowCount(0);
+    }
+
+    private void llenarTablaConProductos(List<Producto> productos) {
+        //modelo
+        DefaultTableModel tblDatos = (DefaultTableModel) tblProductos.getModel();
+        if (productos != null && !productos.isEmpty()) {
+            productos.stream().forEach(producto -> tblDatos.addRow(obtenerFilaProducto(producto)));
+        }
+
+        // Coloca el Modelo de Nueva Cuenta
+        tblProductos.setModel(tblDatos);
+    }
+
+    private Object[] obtenerFilaProducto(Producto producto) {
+        // Prepara los datos vacios iniciales
+        Object[] oFila = new Object[20];
+        // Obtengo los datos en el Objeto Fila
+        oFila[0] = producto.getStrProductoCodigo();
+        oFila[1] = producto.getStrProductoNombre();
+        oFila[2] = producto.getStrProductoDescripcion();
+        oFila[3] = producto.getStrProductoMedida();
+        oFila[4] = producto.getIntProductoInicial();
+        oFila[5] = producto.getIntInventariominimo();
+        oFila[6] = producto.getIntProductoEntradas();
+        oFila[7] = producto.getIntProductoSalidas();
+        oFila[8] = producto.getIntProductoActual();
+        oFila[9] = producto.getIntProductoActualBodega();
+        oFila[10] = producto.getDecProductoCosto();
+        oFila[11] = producto.getDecProductoPrecio();
+        oFila[12] = producto.getDecProductoPrecio2();
+        oFila[13] = producto.getDecProductoPrecio3();
+        oFila[14] = producto.getStrProveedorNombre();
+        oFila[15] = producto.getStrTipoProducto();
+        oFila[16] = producto.getStrMarca();
+        oFila[17] = producto.getDateVencimiento();
+        oFila[18] = producto.getStrComponente();
+        return oFila;
+    }
+
+    // Procedimiento para cargar los productos
+    private void sbProductosCarga() {
+        // Variable para el Query
+        String sQuery;
+        int iCuenta;
+        int iMaxRows;
+
+        // Variable para el modelo de la tabla
+        DefaultTableModel tblDatos = (DefaultTableModel) tblProductos.getModel();
+
+        //tblProductos.removeAll();
+        // Obtiene el Número de Datos
+        iMaxRows = tblDatos.getRowCount();
+
+        // Ciclo para Borrar
+        for (iCuenta = 0; iCuenta < iMaxRows; iCuenta++) {
+            tblDatos.removeRow(0);
+        }
+
+        // Prepara los datos vacios iniciales
+        Object[] oFila = new Object[13];
+
+        // Prepara el Query
+        sQuery = "Select * from tblProductos";
+
+        //Ejecuta el Query
+        oConn.FnBoolQueryExecute(sQuery);
+
+        // Capturo el Error
+        try {
+
+            // Verifico que haya habido resultados
+            iCuenta = 0;
+            while (oConn.setResult.next()) {
+
+                // Obtengo los datos en el Objeto Fila
+                oFila[0] = oConn.setResult.getString("strProductoCodigo");
+                oFila[1] = oConn.setResult.getString("strProductoNombre");
+                oFila[2] = oConn.setResult.getString("strProductoDescripcion");
+                oFila[3] = oConn.setResult.getString("strProductoMedida");
+                oFila[4] = oConn.setResult.getString("intProductoInicial");
+                oFila[5] = oConn.setResult.getString("intProductoEntradas");
+                oFila[6] = oConn.setResult.getString("intProductoSalidas");
+                oFila[7] = oConn.setResult.getString("intProductoActual");
+                oFila[8] = oConn.setResult.getString("decProductoCosto");
+                oFila[9] = oConn.setResult.getString("decProductoPrecio");
+                oFila[10] = oConn.setResult.getString("strProveedorNombre");
+                oFila[11] = oConn.setResult.getString("dateVencimiento");
+                oFila[12] = oConn.setResult.getString("strComponente");
+
+                // Agrega el Dato
+                tblDatos.addRow(oFila);
+                //tblDatos.setValueAt(oFila[1], iCuenta++, 1); // Cambia el valor de la fila 1, columna 2.
+
+            }
+
+            // Cierro los Resultados
+            oConn.setResult.close();
+
+        } catch (SQLException ex) {
+            oFunc.SubSistemaMensaje("sbProductosCarga:" + ex.getMessage().toString());
+        }
+
+        // Coloca el Modelo de Nueva Cuenta
+        tblProductos.setModel(tblDatos);
+
+        //modelo.setValueAt ("nuevo valor", 0, 1); // Cambia el valor de la fila 1, columna 2.
+        //modelo.removeRow (1); // Borra la primera fila
+    }
+
+    @SuppressWarnings("unchecked")
+    // <editor-fold defaultstate="collapsed" desc="Generated Code">                          
+    private void initComponents() {
+
+        subMenu_producto = new javax.swing.JPopupMenu();
+        pnlProductos = new javax.swing.JScrollPane();
+        tblProductos = new javax.swing.JTable();
+        txtBuscar = new javax.swing.JTextField();
+        btnExportarEcxel = new javax.swing.JButton();
+        btnCancelar = new javax.swing.JButton();
+        btnProductoDel = new javax.swing.JButton();
+        btnProductoUpd = new javax.swing.JButton();
+        btnProductoAdd = new javax.swing.JButton();
+        btnCBarras = new javax.swing.JButton();
+        btnVerTodo = new javax.swing.JButton();
+        btnVistaGrid = new javax.swing.JButton();
+        btnVistaLista = new javax.swing.JButton();
+        mnuProductos = new javax.swing.JMenuBar();
+
+        subMenu_producto.setBackground(new java.awt.Color(255, 0, 0));
+        subMenu_producto.setFont(new java.awt.Font("Segoe UI", 0, 18)); // NOI18N
+
+        setTitle("Productos");
+        setBackground(new java.awt.Color(102, 204, 0));
+        setFont(new java.awt.Font("Segoe UI", 0, 14)); // NOI18N
+        setPreferredSize(new java.awt.Dimension(1203, 436));
+        setResizable(false);
+
+        tblProductos.setAutoCreateRowSorter(true);
+        tblProductos.setFont(new java.awt.Font("Segoe UI", 0, 11)); // NOI18N
+        tblProductos.setModel(new javax.swing.table.DefaultTableModel(
+            new Object [][] {
+                {null, null, null, null},
+                {null, null, null, null}
+            },
+            new String [] {
+                "Title 1", "Title 2", "Title 3", "Title 4"
+            }
+        ));
+        tblProductos.setComponentPopupMenu(subMenu_producto);
+        tblProductos.setSelectionMode(javax.swing.ListSelectionModel.SINGLE_SELECTION);
+        tblProductos.addMouseListener(new java.awt.event.MouseAdapter() {
+            public void mousePressed(java.awt.event.MouseEvent evt) {
+                tblProductosMousePressed(evt);
+            }
+        });
+        pnlProductos.setViewportView(tblProductos);
+
+        txtBuscar.setFont(new java.awt.Font("Segoe UI", 1, 14)); // NOI18N
+        txtBuscar.setForeground(new java.awt.Color(0, 0, 255));
+        txtBuscar.setHorizontalAlignment(javax.swing.JTextField.CENTER);
+        txtBuscar.addKeyListener(new java.awt.event.KeyAdapter() {
+            public void keyReleased(java.awt.event.KeyEvent evt) {
+                txtBuscarKeyReleased(evt);
+            }
+        });
+
+        btnExportarEcxel.setBackground(new java.awt.Color(0, 153, 51));
+        btnExportarEcxel.setFont(new java.awt.Font("Verdana", 1, 12)); // NOI18N
+        btnExportarEcxel.setForeground(new java.awt.Color(255, 255, 255));
+        btnExportarEcxel.setText("Exporta Excel");
+        btnExportarEcxel.addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent evt) {
+                btnExportarEcxelActionPerformed(evt);
+            }
+        });
+
+        btnCancelar.setBackground(new java.awt.Color(255, 255, 255));
+        btnCancelar.setFont(new java.awt.Font("Segoe UI", 0, 14)); // NOI18N
+        btnCancelar.setIcon(new javax.swing.ImageIcon(getClass().getResource("/IconoPlanos/cerrar_x.png"))); // NOI18N
+        btnCancelar.setText("Cancelar");
+        btnCancelar.setFocusable(false);
+        btnCancelar.setHorizontalTextPosition(javax.swing.SwingConstants.RIGHT);
+        btnCancelar.setMaximumSize(new java.awt.Dimension(200, 100));
+        btnCancelar.setMinimumSize(new java.awt.Dimension(90, 90));
+        btnCancelar.addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent evt) {
+                btnCancelarActionPerformed(evt);
+            }
+        });
+
+        btnProductoDel.setBackground(new java.awt.Color(255, 255, 255));
+        btnProductoDel.setFont(new java.awt.Font("Segoe UI", 0, 14)); // NOI18N
+        btnProductoDel.setIcon(new javax.swing.ImageIcon(getClass().getResource("/IconoPlanos/eliminar.png"))); // NOI18N
+        btnProductoDel.setText("Eliminar");
+        btnProductoDel.setFocusable(false);
+        btnProductoDel.setHorizontalTextPosition(javax.swing.SwingConstants.RIGHT);
+        btnProductoDel.setMaximumSize(new java.awt.Dimension(200, 100));
+        btnProductoDel.setMinimumSize(new java.awt.Dimension(90, 90));
+        btnProductoDel.addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent evt) {
+                btnProductoDelActionPerformed(evt);
+            }
+        });
+
+        btnProductoUpd.setBackground(new java.awt.Color(255, 255, 255));
+        btnProductoUpd.setFont(new java.awt.Font("Segoe UI", 0, 14)); // NOI18N
+        btnProductoUpd.setIcon(new javax.swing.ImageIcon(getClass().getResource("/IconoPlanos/modificar.png"))); // NOI18N
+        btnProductoUpd.setText("Modificar");
+        btnProductoUpd.setFocusable(false);
+        btnProductoUpd.setHorizontalTextPosition(javax.swing.SwingConstants.RIGHT);
+        btnProductoUpd.setMaximumSize(new java.awt.Dimension(200, 100));
+        btnProductoUpd.setMinimumSize(new java.awt.Dimension(90, 90));
+        btnProductoUpd.addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent evt) {
+                btnProductoUpdActionPerformed(evt);
+            }
+        });
+
+        btnProductoAdd.setBackground(new java.awt.Color(255, 255, 255));
+        btnProductoAdd.setFont(new java.awt.Font("Segoe UI", 0, 14)); // NOI18N
+        btnProductoAdd.setIcon(new javax.swing.ImageIcon(getClass().getResource("/IconoPlanos/nuevo.png"))); // NOI18N
+        btnProductoAdd.setText("Agregar");
+        btnProductoAdd.setHorizontalTextPosition(javax.swing.SwingConstants.RIGHT);
+        btnProductoAdd.setMaximumSize(new java.awt.Dimension(200, 100));
+        btnProductoAdd.setMinimumSize(new java.awt.Dimension(90, 90));
+        btnProductoAdd.addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent evt) {
+                btnProductoAddActionPerformed(evt);
+            }
+        });
+
+        btnCBarras.setBackground(new java.awt.Color(255, 153, 51));
+        btnCBarras.setFont(new java.awt.Font("Verdana", 1, 10)); // NOI18N
+        btnCBarras.setForeground(new java.awt.Color(255, 255, 255));
+        btnCBarras.setText("Generar Código de Barras");
+        btnCBarras.addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent evt) {
+                btnCBarrasActionPerformed(evt);
+            }
+        });
+
+        btnVerTodo.setBackground(new java.awt.Color(255, 255, 255));
+        btnVerTodo.setFont(new java.awt.Font("Segoe UI", 0, 14)); // NOI18N
+        btnVerTodo.setIcon(new javax.swing.ImageIcon(getClass().getResource("/IconoPlanos/buscar_dato.png"))); // NOI18N
+        btnVerTodo.setText("Ver todo");
+        btnVerTodo.setHorizontalTextPosition(javax.swing.SwingConstants.RIGHT);
+        btnVerTodo.setMaximumSize(new java.awt.Dimension(200, 100));
+        btnVerTodo.setMinimumSize(new java.awt.Dimension(90, 90));
+        btnVerTodo.addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent evt) {
+                btnVerTodoActionPerformed(evt);
+            }
+        });
+
+        btnVistaGrid.setBackground(new java.awt.Color(255, 255, 255));
+        btnVistaGrid.setFont(new java.awt.Font("Segoe UI", 0, 14)); // NOI18N
+        btnVistaGrid.setForeground(new java.awt.Color(255, 255, 255));
+        btnVistaGrid.setIcon(new javax.swing.ImageIcon(getClass().getResource("/iconos/icons8-miniaturas-25.png"))); // NOI18N
+        btnVistaGrid.setFocusable(false);
+        btnVistaGrid.setHorizontalTextPosition(javax.swing.SwingConstants.RIGHT);
+        btnVistaGrid.setMaximumSize(new java.awt.Dimension(200, 100));
+        btnVistaGrid.setMinimumSize(new java.awt.Dimension(90, 90));
+        btnVistaGrid.addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent evt) {
+                btnVistaGridActionPerformed(evt);
+            }
+        });
+
+        btnVistaLista.setBackground(new java.awt.Color(255, 255, 255));
+        btnVistaLista.setFont(new java.awt.Font("Segoe UI", 0, 14)); // NOI18N
+        btnVistaLista.setForeground(new java.awt.Color(255, 255, 255));
+        btnVistaLista.setIcon(new javax.swing.ImageIcon(getClass().getResource("/iconos/icons8-lista-25.png"))); // NOI18N
+        btnVistaLista.setFocusable(false);
+        btnVistaLista.setHorizontalTextPosition(javax.swing.SwingConstants.RIGHT);
+        btnVistaLista.setMaximumSize(new java.awt.Dimension(200, 100));
+        btnVistaLista.setMinimumSize(new java.awt.Dimension(90, 90));
+        btnVistaLista.addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent evt) {
+                btnVistaListaActionPerformed(evt);
+            }
+        });
+        setJMenuBar(mnuProductos);
+
+        javax.swing.GroupLayout layout = new javax.swing.GroupLayout(getContentPane());
+        getContentPane().setLayout(layout);
+        layout.setHorizontalGroup(
+            layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+            .addGroup(layout.createSequentialGroup()
+                .addContainerGap()
+                .addComponent(btnVistaLista, javax.swing.GroupLayout.PREFERRED_SIZE, 61, javax.swing.GroupLayout.PREFERRED_SIZE)
+                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.UNRELATED)
+                .addComponent(btnVistaGrid, javax.swing.GroupLayout.PREFERRED_SIZE, 69, javax.swing.GroupLayout.PREFERRED_SIZE)
+                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                .addComponent(txtBuscar, javax.swing.GroupLayout.DEFAULT_SIZE, 458, Short.MAX_VALUE)
+                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                .addComponent(btnVerTodo, javax.swing.GroupLayout.PREFERRED_SIZE, 136, javax.swing.GroupLayout.PREFERRED_SIZE)
+                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                .addComponent(btnProductoAdd, javax.swing.GroupLayout.PREFERRED_SIZE, 120, javax.swing.GroupLayout.PREFERRED_SIZE)
+                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                .addComponent(btnProductoUpd, javax.swing.GroupLayout.PREFERRED_SIZE, 128, javax.swing.GroupLayout.PREFERRED_SIZE)
+                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                .addComponent(btnProductoDel, javax.swing.GroupLayout.PREFERRED_SIZE, 139, javax.swing.GroupLayout.PREFERRED_SIZE)
+                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                .addComponent(btnCancelar, javax.swing.GroupLayout.PREFERRED_SIZE, 134, javax.swing.GroupLayout.PREFERRED_SIZE)
+                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                .addComponent(btnExportarEcxel)
+                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                .addComponent(btnCBarras, javax.swing.GroupLayout.PREFERRED_SIZE, 185, javax.swing.GroupLayout.PREFERRED_SIZE)
+                .addGap(29, 29, 29))
+            .addComponent(pnlProductos)
+        );
+        layout.setVerticalGroup(
+            layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+            .addGroup(layout.createSequentialGroup()
+                .addGap(10, 10, 10)
+                .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+                    .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.BASELINE)
+                        .addComponent(txtBuscar, javax.swing.GroupLayout.PREFERRED_SIZE, 40, javax.swing.GroupLayout.PREFERRED_SIZE)
+                        .addComponent(btnCancelar, javax.swing.GroupLayout.PREFERRED_SIZE, 40, javax.swing.GroupLayout.PREFERRED_SIZE)
+                        .addComponent(btnProductoDel, javax.swing.GroupLayout.PREFERRED_SIZE, 40, javax.swing.GroupLayout.PREFERRED_SIZE)
+                        .addComponent(btnProductoUpd, javax.swing.GroupLayout.PREFERRED_SIZE, 40, javax.swing.GroupLayout.PREFERRED_SIZE)
+                        .addComponent(btnProductoAdd, javax.swing.GroupLayout.PREFERRED_SIZE, 40, javax.swing.GroupLayout.PREFERRED_SIZE)
+                        .addComponent(btnExportarEcxel, javax.swing.GroupLayout.PREFERRED_SIZE, 40, javax.swing.GroupLayout.PREFERRED_SIZE)
+                        .addComponent(btnCBarras, javax.swing.GroupLayout.PREFERRED_SIZE, 40, javax.swing.GroupLayout.PREFERRED_SIZE)
+                        .addComponent(btnVerTodo, javax.swing.GroupLayout.PREFERRED_SIZE, 40, javax.swing.GroupLayout.PREFERRED_SIZE)
+                        .addComponent(btnVistaGrid, javax.swing.GroupLayout.PREFERRED_SIZE, 42, javax.swing.GroupLayout.PREFERRED_SIZE))
+                    .addComponent(btnVistaLista, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE))
+                .addGap(17, 17, 17)
+                .addComponent(pnlProductos, javax.swing.GroupLayout.DEFAULT_SIZE, 359, Short.MAX_VALUE)
+                .addContainerGap())
+        );
+
+        pack();
+    }// </editor-fold>                        
+
+    private void tblProductosMousePressed(java.awt.event.MouseEvent evt) {                                          
+        // TODO add your handling code here:
+
+        // Para Obtener el Código
+        //String sCodigo;
+        // Verifica doble Click
+        // if (evt.getClickCount() == 1) 
+        // {
+        /*
+             // Variable para el modelo de la tabla
+             DefaultTableModel tblDatos = (DefaultTableModel) tblProductos.getModel();
+            
+            // Obtengo el Codigo de la celda
+            sCodigo = tblDatos.getValueAt(tblProductos.getSelectedRow(),0).toString();
+            
+             // Declaro la variable para la forma de ABC Productos
+             H_AgregarProducto frmProductosABC = new H_AgregarProducto(null, true);
+        
+             // Muestra la Forma
+             frmProductosABC.setTitle(frmProductosABC.getTitle()+"-Editar");
+             frmProductosABC.setCodigo(sCodigo);
+             frmProductosABC.fnBoolProductoExiste(true);
+             frmProductosABC.setVisible(true);
+             
+             // Carga los productos al terminar        
+             sbProductosCarga();
+         */
+        // }
+    }                                         
+
+    private void btnProductoAddActionPerformed(java.awt.event.ActionEvent evt) {                                               
+
+        // Declaro la Variable de la Forma de Procesos
+        // Declaro la variable para la forma de ABC Productos
+        H_AgregarProducto2 frmProductosABC = new H_AgregarProducto2(null, true);
+
+        // Muestra la Forma
+        frmProductosABC.setTitle(frmProductosABC.getTitle() + "-Insertar");
+
+        ///frmProductosABC.setVisible(true);
+        //frmProductosABC.fnBoolcargarMedidaProveedor();
+        frmProductosABC.HabilitarTxtCodigoProducto();
+        frmProductosABC.setVisible(true);
+
+        // Carga los productos al terminar   
+        
+        //con bodega
+         sbProductosCargaFiltro2("");
+        //Sin bodega        
+        //sbProductosCargaFiltro("");
+
+
+    }                                              
+
+    private void btnProductoUpdActionPerformed(java.awt.event.ActionEvent evt) {                                               
+        // TODO add your handling code here:
+
+        // Variable para el Código
+        String sCodigo;
+
+        // Valida que esté seleccionado  un dato
+        if (tblProductos.getSelectedRow() >= 0) {
+            try {
+                // Variable para el modelo de la tabla
+                DefaultTableModel tblDatos = (DefaultTableModel) tblProductos.getModel();
+
+                // Obtengo el Codigo de la celda
+                sCodigo = tblDatos.getValueAt(tblProductos.getSelectedRow(), 0).toString();
+
+                // Declaro la variable para la forma de ABC Productos
+                H_AgregarProducto2 frmProductosABC = new H_AgregarProducto2(null, true);
+
+                // Muestra la Forma
+                frmProductosABC.setTitle(frmProductosABC.getTitle() + "-Editar");
+                frmProductosABC.setCodigo(sCodigo);
+                frmProductosABC.fnBoolProductoExiste(true);
+                frmProductosABC.desHabilitarTxtCodigoProducto();
+                frmProductosABC.desHabilitarDatos();
+                frmProductosABC.BloquearBtnLimpiar();
+                frmProductosABC.setVisible(true);
+
+            } catch (SQLException ex) {
+                Logger.getLogger(F_Menu_producto.class.getName()).log(Level.SEVERE, null, ex);
+            }
+        } else {
+            oFunc.SubSistemaMensaje("Seleccione un Producto");
+        }
+    }                                              
+
+    private void sbProductoBuscaDato(String sDato) {
+        // Variables para Fila y Columns
+        int fil, col;
+        boolean bEncontro = false;
+
+        // Pasa a mayúsculas
+        sDato = sDato.toUpperCase();
+
+        //Limpia selección de la tabla
+        tblProductos.clearSelection();
+
+        for (fil = 0; fil < tblProductos.getRowCount(); fil++) {
+            for (col = 0; col < tblProductos.getColumnCount(); col++) {
+                //Obtiene dato contenido en una celda de la tabla
+                String value = (String) tblProductos.getValueAt(fil, col);
+
+                // lo pasa a Mayúsculas
+                value = value.toUpperCase();
+
+                //if(value.equals(sDato))
+                if (value.lastIndexOf(sDato) >= 0) {
+                    //Selecciona celda si el texto es encontrado     
+                    //tblProductos.changeSelection(col, col, bEncontro, bEncontro);
+                    tblProductos.changeSelection(fil, col, false, false);
+                    bEncontro = true;
+                    break;
+                }
+            }
+            if (bEncontro) {
+                break;
+            }
+        }
+    }
+    private void btnProductoDelActionPerformed(java.awt.event.ActionEvent evt) {                                               
+        // TODO add your handling code here:
+        // Variable para el Código
+        String sCodigo;
+        String sQuery;
+        int iResult;
+
+        // Valida que esté seleccionado  un dato
+        if (tblProductos.getSelectedRow() >= 0) {
+            // Confirmación de la Eliminación
+            if (oFunc.fnIntSistemaPregunta("Desea realmente eliminar el Registro") == JOptionPane.YES_OPTION) {
+                // Variable para el modelo de la tabla
+                DefaultTableModel tblDatos = (DefaultTableModel) tblProductos.getModel();
+
+                // Obtengo el Codigo de la celda
+                sCodigo = tblDatos.getValueAt(tblProductos.getSelectedRow(), 0).toString();
+
+                // Prepara el Query para Borrar
+                sQuery = "Delete from tblProductos Where strProductoCodigo='" + sCodigo + "'";
+
+                if (oConn.FnBoolQueryExecuteUpdate(sQuery)) {
+                    oFunc.SubSistemaMensaje("El Producto ha sido eliminado");
+                }
+
+                // Carga los productos al terminar
+                // sbProductosCarga();
+            }
+        } else {
+            oFunc.SubSistemaMensaje("Seleccione un Producto");
+        }
+    }                                              
+
+
+
+
+//    private void sbProductosCargaFiltro2(String cad)
+//    {
+//        // Variable para el Query
+//        String sQuery;
+//        int iCuenta;
+//        int iMaxRows;
+//        
+//        // Variable para el modelo de la tabla
+//        DefaultTableModel tblDatos = (DefaultTableModel) tblProductos.getModel();
+//        
+//        //tblProductos.removeAll();
+//        
+//        // Obtiene el Número de Datos
+//        iMaxRows = tblDatos.getRowCount();
+//        
+//        // Ciclo para Borrar
+//        for (iCuenta=0; iCuenta<iMaxRows;iCuenta++)
+//             tblDatos.removeRow(0);
+//        
+//        // Prepara los datos vacios iniciales
+//        Object [] oFila = new Object[20];
+//        
+//        // Prepara el Query
+//       // sQuery = "Select * from tblProductos";
+//              sQuery = "SELECT strProductoCodigo,strProductoNombre,strProductoDescripcion,"
+//                            + "strProductoMedida,intProductoInicial, intInventariominimo, intProductoEntradas, intProductoSalidas, "
+//                            + "intProductoActual, intProductoActual_bodega, decProductoCosto, decProductoPrecio, decProductoPrecio2, decProductoPrecio3, "
+//                            + "strProveedorNombre,dateVencimiento, strTipoProducto, strMarca,"
+//                            + "strComponente FROM tblproductos WHERE "
+//                            + "CONCAT(strProductoDescripcion,' ',strProductoCodigo)"
+//                            + "LIKE '%"+cad+"%' AND intProductoActual > 0";
+//              
+//                            //anterior modificado para res mayor velocidad
+//                            /* + "CONCAT(strProductoDescripcion,' ',strProductoNombre,' ',strProductoCodigo,' ',strComponente,' ',"
+//                               + "strTipoProducto,' ',strMarca)"
+//                               + "LIKE '%"+cad+"%'";*/
+//              
+//              
+//        //Ejecuta el Query
+//        oConn.FnBoolQueryExecute(sQuery);
+//        
+//        // Capturo el Error
+//        try {
+//            // Verifico que haya habido resultados
+//            iCuenta=0;
+//            while (oConn.setResult.next())
+//            {
+//                        // Obtengo los datos en el Objeto Fila
+//                oFila[0]=oConn.setResult.getString("strProductoCodigo");
+//                oFila[1]=oConn.setResult.getString("strProductoNombre");                
+//                oFila[2]=oConn.setResult.getString("strProductoDescripcion");
+//                oFila[3]=oConn.setResult.getString("strProductoMedida");
+//                oFila[4]=oConn.setResult.getString("intProductoInicial");
+//                oFila[5]=oConn.setResult.getString("intInventariominimo");
+//                oFila[6]=oConn.setResult.getString("intProductoEntradas");
+//                oFila[7]=oConn.setResult.getString("intProductoSalidas");
+//                oFila[8]=oConn.setResult.getString("intProductoActual");
+//                oFila[9]=oConn.setResult.getString("intProductoActual_bodega");
+//                oFila[10]=oConn.setResult.getString("decProductoCosto");
+//                oFila[11]=oConn.setResult.getString("decProductoPrecio");
+//                oFila[12]=oConn.setResult.getString("decProductoPrecio2");
+//                oFila[13]=oConn.setResult.getString("decProductoPrecio3");
+//                oFila[14]=oConn.setResult.getString("strProveedorNombre");
+//                oFila[15]=oConn.setResult.getString("strTipoProducto");
+//                oFila[16]=oConn.setResult.getString("strMarca");                
+//                oFila[17]=oConn.setResult.getString("dateVencimiento");
+//                oFila[18]=oConn.setResult.getString("strComponente");
+//                                
+//                // Agrega el Dato
+//                tblDatos.addRow(oFila);
+//                //tblDatos.setValueAt(oFila[1], iCuenta++, 1); // Cambia el valor de la fila 1, columna 2.
+//            }
+//            
+//        // Cierro los Resultados
+//        oConn.setResult.close();
+//                
+//        } catch (SQLException ex) {
+//            oFunc.SubSistemaMensaje("sbProductosCarga:"+ex.getMessage().toString());
+//        }
+//        
+//        // Coloca el Modelo de Nueva Cuenta
+//       tblProductos.setModel(tblDatos);
+//     
+//    }
+    private void sbProductosCargaFiltro3(String cad)
+    {
+        // Variable para el Query
+        String sQuery;
+        int iCuenta;
+        int iMaxRows;
+        
+        // Variable para el modelo de la tabla
+        DefaultTableModel tblDatos = (DefaultTableModel) tblProductos.getModel();
+        
+        //tblProductos.removeAll();
+        
+        // Obtiene el Número de Datos
+        iMaxRows = tblDatos.getRowCount();
+        
+        // Ciclo para Borrar
+        for (iCuenta=0; iCuenta<iMaxRows;iCuenta++)
+             tblDatos.removeRow(0);
+        
+        // Prepara los datos vacios iniciales
+        Object [] oFila = new Object[20];
+        
+        // Prepara el Query
+       // sQuery = "Select * from tblProductos";
+              sQuery = "SELECT strProductoCodigo,strProductoNombre,strProductoDescripcion,"
+                            + "strProductoMedida,intProductoInicial, intInventariominimo, intProductoEntradas, intProductoSalidas, "
+                            + "intProductoActual, intProductoActual_bodega, decProductoCosto, decProductoPrecio, decProductoPrecio2, decProductoPrecio3, "
+                            + "strProveedorNombre,dateVencimiento, strTipoProducto, strMarca,"
+                            + "strComponente FROM tblProductos WHERE "
+                            + "CONCAT(strProductoDescripcion,' ',strProductoCodigo)"
+                            + "LIKE '%"+cad+"%'";
+              
+                            //anterior modificado para res mayor velocidad
+                            /* + "CONCAT(strProductoDescripcion,' ',strProductoNombre,' ',strProductoCodigo,' ',strComponente,' ',"
+                               + "strTipoProducto,' ',strMarca)"
+                               + "LIKE '%"+cad+"%'";*/
+              
+              
+        //Ejecuta el Query
+        oConn.FnBoolQueryExecute(sQuery);
+        
+        // Capturo el Error
+        try {
+            // Verifico que haya habido resultados
+            iCuenta=0;
+            while (oConn.setResult.next())
+            {
+                        // Obtengo los datos en el Objeto Fila
+                oFila[0]=oConn.setResult.getString("strProductoCodigo");
+                oFila[1]=oConn.setResult.getString("strProductoNombre");                
+                oFila[2]=oConn.setResult.getString("strProductoDescripcion");
+                oFila[3]=oConn.setResult.getString("strProductoMedida");
+                oFila[4]=oConn.setResult.getString("intProductoInicial");
+                oFila[5]=oConn.setResult.getString("intInventariominimo");
+                oFila[6]=oConn.setResult.getString("intProductoEntradas");
+                oFila[7]=oConn.setResult.getString("intProductoSalidas");
+                oFila[8]=oConn.setResult.getString("intProductoActual");
+                oFila[9]=oConn.setResult.getString("intProductoActual_bodega");
+                oFila[10]=oConn.setResult.getString("decProductoCosto");
+                oFila[11]=oConn.setResult.getString("decProductoPrecio");
+                oFila[12]=oConn.setResult.getString("decProductoPrecio2");
+                oFila[13]=oConn.setResult.getString("decProductoPrecio3");
+                oFila[14]=oConn.setResult.getString("strProveedorNombre");
+                oFila[15]=oConn.setResult.getString("strTipoProducto");
+                oFila[16]=oConn.setResult.getString("strMarca");                
+                oFila[17]=oConn.setResult.getString("dateVencimiento");
+                oFila[18]=oConn.setResult.getString("strComponente");
+                                
+                // Agrega el Dato
+                tblDatos.addRow(oFila);
+                //tblDatos.setValueAt(oFila[1], iCuenta++, 1); // Cambia el valor de la fila 1, columna 2.
+            }
+            
+        // Cierro los Resultados
+        oConn.setResult.close();
+                
+        } catch (SQLException ex) {
+            oFunc.SubSistemaMensaje("sbProductosCarga:"+ex.getMessage().toString());
+        }
+        
+        // Coloca el Modelo de Nueva Cuenta
+       tblProductos.setModel(tblDatos);
+     
+    }
+    private void btnCancelarActionPerformed(java.awt.event.ActionEvent evt) {                                            
+        this.dispose();        // TODO add your handling code here:
+    }                                           
+
+    private void txtBuscarKeyReleased(java.awt.event.KeyEvent evt) {                                      
+     
+          String textoBusqueda = txtBuscar.getText().trim();
+    System.out.println("Buscando: '" + textoBusqueda + "' en modo: " + modoVisualizacion + " (solo con existencia)");
+    
+    // Usar el método que ya filtra por existencia
+    sbProductosCargaFiltroGRidLista(textoBusqueda);
+
+    }                                     
+    
+    private void btnExportarEcxelActionPerformed(java.awt.event.ActionEvent evt) {                                                 
+        try {
+            obj = new clsExportarExcel();
+            obj.exportarExcel(tblProductos);
+        } catch (IOException ex) {
+            Logger.getLogger(F_Menu_producto.class.getName()).log(Level.SEVERE, null, ex);
+        }
+    }                                                
+
+    private void btnCBarrasActionPerformed(java.awt.event.ActionEvent evt) {                                           
+    if (oGlobal.fnBoolBitacoraActiva()) {
+            oGlobal.sbGrabaBitacora(clsGlobales.sSystemUser, "Impresion de codigo de barras´productos");
+        }
+        
+    
+       String codigo = null;
+        
+        // Valida que esté seleccionado  un dato
+        if (tblProductos.getSelectedRow() >= 0) {
+         
+                // Variable para el modelo de la tabla
+                DefaultTableModel tblDatos = (DefaultTableModel) tblProductos.getModel();
+
+                // Obtengo el Codigo de la celda
+                codigo = tblDatos.getValueAt(tblProductos.getSelectedRow(), 0).toString();
+                
+                
+                
+                    String Seleccion = codigo;
+                   if (Seleccion == null) {
+                       oFunc.SubSistemaMensaje("Debe Capturar:" + Seleccion);
+                   } else {
+                       // Obtiene en Cadena las 2 fechas
+                       clsGlobales.sFecha1 = Seleccion;
+
+                   }
+
+                   // Verifica que no haya cancelado
+                   if (!clsGlobales.sFecha1.equals("")) {
+                       //Pasamos parametros al reporte Jasper.
+                       Map parameters = new HashMap();
+
+                       // Coloco los valores en los parámetros
+                       parameters.put("Folio", clsGlobales.sFecha1);
+
+                       try {
+                           // Carga el archivo jasper al objeto JasperReport
+                           JasperReport myReport = (JasperReport) JRLoader.loadObjectFromFile("barcode79.jasper");
+
+                           // Genera el reporte usando el objeto JasperReport e indicando la conexion
+                           JasperPrint myPrint = JasperFillManager.fillReport(myReport, parameters, clsConnection.oConnection);
+                           //JasperPrint myPrint = JasperFillManager.fillReport(myReport, null,new JREmptyDataSource());
+
+                           // Visualiza el Reporte
+//                           JasperViewer jv = new JasperViewer(myPrint, false);
+//                           jv.setModalExclusionType(Dialog.ModalExclusionType.APPLICATION_EXCLUDE);
+                           
+                           JasperViewer.viewReport(myPrint, false);
+
+                       } catch (JRException ex) {
+                           Logger.getLogger(B_Menu.class.getName()).log(Level.SEVERE, null, ex);
+                       }
+                   }
+                
+               
+            
+        } else {
+            oFunc.SubSistemaMensaje("Seleccione un Producto");
+        }
+        
+    }                                          
+
+    private void btnVerTodoActionPerformed(java.awt.event.ActionEvent evt) {                                           
+
+      F_Menu_producto_Tiendas_todo frmProductosABC = new F_Menu_producto_Tiendas_todo(null, true);
+        frmProductosABC.setVisible(true);
+
+    }                                          
+
+    private void btnVistaGridActionPerformed(java.awt.event.ActionEvent evt) {                                             
+     
+       if (vistaListaActiva) {
+        activarVistaGrid();
+    }
+    
+
+    
+
+    }                                            
+
+    private void btnVistaListaActionPerformed(java.awt.event.ActionEvent evt) {                                              
+     if (!vistaListaActiva) {
+        activarVistaLista();
+    }
+    }                                             
+
+    
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    /**
+     * @param args the command line arguments
+     */
+    public static void main(String args[]) {
+        /*
+         * Set the Nimbus look and feel
+         */
+        //<editor-fold defaultstate="collapsed" desc=" Look and feel setting code (optional) ">
+        /*
+         * If Nimbus (introduced in Java SE 6) is not available, stay with the
+         * default look and feel. For details see
+         * http://download.oracle.com/javase/tutorial/uiswing/lookandfeel/plaf.html
+         */
+        try {
+            for (javax.swing.UIManager.LookAndFeelInfo info : javax.swing.UIManager.getInstalledLookAndFeels()) {
+                if ("Nimbus".equals(info.getName())) {
+                    javax.swing.UIManager.setLookAndFeel(info.getClassName());
+                    break;
+                }
+            }
+        } catch (ClassNotFoundException ex) {
+            java.util.logging.Logger.getLogger(F_Menu_producto.class.getName()).log(java.util.logging.Level.SEVERE, null, ex);
+        } catch (InstantiationException ex) {
+            java.util.logging.Logger.getLogger(F_Menu_producto.class.getName()).log(java.util.logging.Level.SEVERE, null, ex);
+        } catch (IllegalAccessException ex) {
+            java.util.logging.Logger.getLogger(F_Menu_producto.class.getName()).log(java.util.logging.Level.SEVERE, null, ex);
+        } catch (javax.swing.UnsupportedLookAndFeelException ex) {
+            java.util.logging.Logger.getLogger(F_Menu_producto.class.getName()).log(java.util.logging.Level.SEVERE, null, ex);
+        }
+        //</editor-fold>
+        //</editor-fold>
+        //</editor-fold>
+        //</editor-fold>
+        //</editor-fold>
+        //</editor-fold>
+        //</editor-fold>
+        //</editor-fold>
+
+        /*
+         * Create and display the dialog
+         */
+        java.awt.EventQueue.invokeLater(new Runnable() {
+
+            public void run() {
+                F_Menu_producto_Tiendas_Bodega dialog = new F_Menu_producto_Tiendas_Bodega(new javax.swing.JFrame(), true);
+                dialog.addWindowListener(new java.awt.event.WindowAdapter() {
+
+                    @Override
+                    public void windowClosing(java.awt.event.WindowEvent e) {
+                        System.exit(0);
+                    }
+                });
+                dialog.setVisible(true);
+            }
+        });
+    }
+    // Variables declaration - do not modify                     
+    private javax.swing.JButton btnCBarras;
+    private javax.swing.JButton btnCancelar;
+    private javax.swing.JButton btnExportarEcxel;
+    private javax.swing.JButton btnProductoAdd;
+    private javax.swing.JButton btnProductoDel;
+    private javax.swing.JButton btnProductoUpd;
+    private javax.swing.JButton btnVerTodo;
+    private javax.swing.JButton btnVistaGrid;
+    private javax.swing.JButton btnVistaLista;
+    private javax.swing.JMenuBar mnuProductos;
+    private javax.swing.JScrollPane pnlProductos;
+    private javax.swing.JPopupMenu subMenu_producto;
+    private javax.swing.JTable tblProductos;
+    private javax.swing.JTextField txtBuscar;
+    // End of variables declaration                   
+}

@@ -1,0 +1,156 @@
+private void cambiarModoVisualizacion(String nuevoModo) {
+    System.out.println("Cambiando de " + modoVisualizacion + " a " + nuevoModo);
+    
+    modoVisualizacion = nuevoModo;
+    
+    if (modoVisualizacion.equals("grid")) {
+        System.out.println("Forzando actualización del grid...");
+        mostrarVistaGrid();
+        
+        // FORZAR VISUALIZACIÓN después de un delay
+        forzarVisualizacionGrid();
+    }
+    
+    mostrarVistaActual();
+    
+    // VERIFICAR ESTADO
+    verificarEstadoComponentes();
+    
+    // Actualizar texto del botón
+    if (modoVisualizacion.equals("lista")) {
+        btnVistaGrid.setText("Vista Grid");
+        btnVistaGrid.setBackground(new Color(70, 130, 180));
+    } else {
+        btnVistaGrid.setText("Vista Lista");
+        btnVistaGrid.setBackground(new Color(0, 100, 0));
+    }
+}
+
+private void mostrarVistaActual() {
+    System.out.println("Mostrando vista: " + modoVisualizacion);
+    
+    if (cardLayout != null && cardPanel != null) {
+        cardLayout.show(cardPanel, modoVisualizacion);
+        
+        // Asegurar que los datos estén actualizados
+        if (modoVisualizacion.equals("grid") && productosActuales != null) {
+            System.out.println("Actualizando grid con " + productosActuales.size() + " productos");
+            mostrarVistaGrid();
+        }
+        
+        cardPanel.revalidate();
+        cardPanel.repaint();
+    } else {
+        System.out.println("ERROR: CardLayout no inicializado");
+    }
+}
+
+private void forzarVisualizacionGrid() {
+    new javax.swing.Timer(200, new ActionListener() {
+        @Override
+        public void actionPerformed(ActionEvent e) {
+            try {
+                System.out.println("=== FORZANDO VISUALIZACIÓN GRID ===");
+                
+                Container contentPane = getContentPane();
+                int ancho = contentPane.getWidth();
+                int alto = contentPane.getHeight() - 100;
+                
+                // FORZAR TAMAÑOS DE MANERA AGRESIVA
+                if (pnlGrid != null) {
+                    pnlGrid.setBounds(0, 0, ancho, alto);
+                    pnlGrid.setPreferredSize(new Dimension(ancho, alto));
+                    pnlGrid.setSize(ancho, alto);
+                }
+                
+                if (pnlGridContainer != null) {
+                    pnlGridContainer.setPreferredSize(new Dimension(ancho - 20, alto * 2)); // Alto doble para scroll
+                    pnlGridContainer.setSize(ancho - 20, alto * 2);
+                }
+                
+                if (cardPanel != null) {
+                    cardPanel.setPreferredSize(new Dimension(ancho, alto));
+                    cardPanel.setSize(ancho, alto);
+                }
+                
+                // REVALIDAR TODO
+                contentPane.revalidate();
+                contentPane.repaint();
+                
+                System.out.println("Tamaños forzados:");
+                System.out.println(" - pnlGrid: " + (pnlGrid != null ? pnlGrid.getSize() : "null"));
+                System.out.println(" - pnlGridContainer: " + (pnlGridContainer != null ? pnlGridContainer.getSize() : "null"));
+                System.out.println(" - cardPanel: " + (cardPanel != null ? cardPanel.getSize() : "null"));
+                
+                ((javax.swing.Timer) e.getSource()).stop();
+                
+            } catch (Exception ex) {
+                System.out.println("Error en forzarVisualizacionGrid: " + ex.getMessage());
+                ((javax.swing.Timer) e.getSource()).stop();
+            }
+        }
+    }).start();
+}    
+    
+
+
+    private void forzarVisualizacionGrid() {
+    new javax.swing.Timer(200, new ActionListener() {
+        @Override
+        public void actionPerformed(ActionEvent e) {
+            try {
+                System.out.println("=== FORZANDO VISUALIZACIÓN GRID ===");
+                
+                Container contentPane = getContentPane();
+                int ancho = contentPane.getWidth();
+                int alto = contentPane.getHeight() - 100;
+                
+                // FORZAR TAMAÑOS DE MANERA AGRESIVA
+                if (pnlGrid != null) {
+                    pnlGrid.setBounds(0, 0, ancho, alto);
+                    pnlGrid.setPreferredSize(new Dimension(ancho, alto));
+                    pnlGrid.setSize(ancho, alto);
+                }
+                
+                if (pnlGridContainer != null) {
+                    pnlGridContainer.setPreferredSize(new Dimension(ancho - 20, alto * 2)); // Alto doble para scroll
+                    pnlGridContainer.setSize(ancho - 20, alto * 2);
+                }
+                
+                if (cardPanel != null) {
+                    cardPanel.setPreferredSize(new Dimension(ancho, alto));
+                    cardPanel.setSize(ancho, alto);
+                }
+                
+                // REVALIDAR TODO
+                contentPane.revalidate();
+                contentPane.repaint();
+                
+                System.out.println("Tamaños forzados:");
+                System.out.println(" - pnlGrid: " + (pnlGrid != null ? pnlGrid.getSize() : "null"));
+                System.out.println(" - pnlGridContainer: " + (pnlGridContainer != null ? pnlGridContainer.getSize() : "null"));
+                System.out.println(" - cardPanel: " + (cardPanel != null ? cardPanel.getSize() : "null"));
+                
+                ((javax.swing.Timer) e.getSource()).stop();
+                
+            } catch (Exception ex) {
+                System.out.println("Error en forzarVisualizacionGrid: " + ex.getMessage());
+                ((javax.swing.Timer) e.getSource()).stop();
+            }
+        }
+    }).start();
+}   
+
+
+
+private void verificarEstadoComponentes() {
+    System.out.println("=== VERIFICACIÓN DE COMPONENTES ===");
+    System.out.println("CardPanel visible: " + (cardPanel != null ? cardPanel.isVisible() : "null"));
+    System.out.println("CardPanel tamaño: " + (cardPanel != null ? cardPanel.getSize() : "null"));
+    System.out.println("pnlGrid visible: " + (pnlGrid != null ? pnlGrid.isVisible() : "null"));
+    System.out.println("pnlGrid tamaño: " + (pnlGrid != null ? pnlGrid.getSize() : "null"));
+    System.out.println("pnlGridContainer visible: " + (pnlGridContainer != null ? pnlGridContainer.isVisible() : "null"));
+    System.out.println("pnlGridContainer componentes: " + (pnlGridContainer != null ? pnlGridContainer.getComponentCount() : "null"));
+    System.out.println("===================================");
+}     
+    
