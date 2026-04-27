@@ -3,9 +3,12 @@ dist/
 build/
 .vite/
 coverage/
+.cache/
 
 client/node_modules/
 client/dist/
+client/.env
+client/.env.*
 server/node_modules/
 
 .env
@@ -25,3 +28,5 @@ pnpm-debug.log*
 Thumbs.db
 .vscode/
 .idea/
+*.tmp
+*.bak
