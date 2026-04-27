@@ -1,12 +1,12 @@
 import express from 'express'
-import path from 'path'
 import multer from 'multer'
 import { authMiddleware, roleMiddleware } from '../auth.js'
 import { getPool } from '../db.js'
 import { registerMovement } from '../services/inventory.js'
+import { uploadsDir } from '../paths.js'
 
 const router = express.Router()
-const upload = multer({ dest: path.join(process.cwd(), 'server', 'uploads') })
+const upload = multer({ dest: uploadsDir })
 
 // Ensure warehouse stock table and default warehouse id=1
 async function ensureWarehouseStockTable(pool) {

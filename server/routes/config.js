@@ -4,10 +4,11 @@ import path from 'path'
 import multer from 'multer'
 import { authMiddleware, roleMiddleware } from '../auth.js'
 import { getPool } from '../db.js'
+import { dataDir, uploadsDir } from '../paths.js'
 
 const router = express.Router()
-const cfgPath = path.join(process.cwd(), 'server', 'data', 'config.json')
-const upload = multer({ dest: path.join(process.cwd(), 'server', 'uploads') })
+const cfgPath = path.join(dataDir, 'config.json')
+const upload = multer({ dest: uploadsDir })
 
 function ensureSeed() {
   if (!fs.existsSync(cfgPath)) {

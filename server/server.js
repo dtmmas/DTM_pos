@@ -2,7 +2,6 @@ import express from 'express'
 import cors from 'cors'
 import morgan from 'morgan'
 import dotenv from 'dotenv'
-import path from 'path'
 import fs from 'fs'
 import authRouter from './routes/auth.js'
 import configRouter from './routes/config.js'
@@ -24,21 +23,37 @@ import rolesRouter from './routes/roles.js'
 import usersRouter from './routes/users.js'
 import transfersRouter from './routes/transfers.js'
 import cashRegistersRouter from './routes/cash_registers.js'
+import { envPath, uploadsDir } from './paths.js'
 
-dotenv.config()
+dotenv.config({ path: envPath })
 const app = express()
 const PORT = process.env.PORT || 4000
+const HOST = process.env.HOST || '0.0.0.0'
+const isProduction = process.env.NODE_ENV === 'production'
 
-app.use(cors())
+const allowedOrigins = (process.env.CORS_ORIGIN || '')
+  .split(',')
+  .map(origin => origin.trim())
+  .filter(Boolean)
+
+function corsOrigin(origin, callback) {
+  if (!origin) return callback(null, true)
+  if (allowedOrigins.length === 0) return callback(null, true)
+  if (allowedOrigins.includes(origin)) return callback(null, true)
+  return callback(new Error(`Origin not allowed by CORS: ${origin}`))
+}
+
+app.set('trust proxy', process.env.TRUST_PROXY || 1)
+app.use(cors({ origin: corsOrigin, credentials: true }))
 app.use(express.json())
+app.use(express.urlencoded({ extended: true }))
 app.use(morgan('dev'))
 
 // ensure uploads dir exists
-const uploadsDir = path.join(process.cwd(), 'server', 'uploads')
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true })
 app.use('/uploads', express.static(uploadsDir))
 
-app.get('/api/health', (req, res) => res.json({ ok: true }))
+app.get('/api/health', (req, res) => res.json({ ok: true, env: process.env.NODE_ENV || 'development' }))
 app.use('/api/auth', authRouter)
 app.use('/api/roles', rolesRouter)
 app.use('/api/users', usersRouter)
@@ -64,7 +79,13 @@ app.use('/api/cash-registers', cashRegistersRouter)
   try {
     await getPool()
     console.log('MySQL connected')
-    app.listen(PORT, () => console.log(`API running on http://localhost:${PORT}`))
+    app.listen(PORT, HOST, () => {
+      const publicHost = HOST === '0.0.0.0' ? 'localhost' : HOST
+      console.log(`API running on http://${publicHost}:${PORT}`)
+      if (isProduction && allowedOrigins.length === 0) {
+        console.warn('CORS_ORIGIN is not configured; all origins are currently allowed.')
+      }
+    })
   } catch (err) {
     console.error('Failed to connect to MySQL:', err?.message || err)
     process.exit(1)

@@ -3,12 +3,13 @@ import multer from 'multer'
 import path from 'path'
 import { authMiddleware } from '../auth.js'
 import { getPool } from '../db.js'
+import { uploadsDir } from '../paths.js'
 
 const router = express.Router()
 
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    cb(null, path.join(process.cwd(), 'server', 'uploads'))
+    cb(null, uploadsDir)
   },
   filename: function (req, file, cb) {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9)

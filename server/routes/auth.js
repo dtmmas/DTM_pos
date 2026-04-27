@@ -2,20 +2,8 @@ import express from 'express'
 import bcrypt from 'bcryptjs'
 import { signToken } from '../auth.js'
 import { getPool } from '../db.js'
-import fs from 'fs'
-import path from 'path'
 
 const router = express.Router()
-const usersPath = path.join(process.cwd(), 'server', 'data', 'users.json')
-
-function ensureSeed() {
-  if (!fs.existsSync(usersPath)) {
-    fs.mkdirSync(path.dirname(usersPath), { recursive: true })
-    const hash = bcrypt.hashSync('admin123', 10)
-    const seed = [{ id: 1, name: 'Admin', email: 'admin@local', role: 'ADMIN', password: hash }]
-    fs.writeFileSync(usersPath, JSON.stringify(seed, null, 2))
-  }
-}
 
 router.post('/login', async (req, res) => {
   const { email, password } = req.body

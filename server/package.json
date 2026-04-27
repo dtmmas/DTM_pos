@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "node server.js",
+    "start": "node server.js",
     "seed": "node seeds/seed.js",
     "migrate": "node migrations/migrate.js",
     "seed:departments": "node seeds/seed_departments.js",

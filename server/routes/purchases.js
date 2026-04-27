@@ -4,13 +4,14 @@ import path from 'path'
 import { authMiddleware } from '../auth.js'
 import { getPool } from '../db.js'
 import { registerMovement } from '../services/inventory.js'
+import { uploadsDir } from '../paths.js'
 
 const router = express.Router()
 
 // Configure Multer for document uploads
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    cb(null, path.join(process.cwd(), 'server', 'uploads'))
+    cb(null, uploadsDir)
   },
   filename: function (req, file, cb) {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9)
