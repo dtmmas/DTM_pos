@@ -150,8 +150,8 @@ router.post('/', authMiddleware, upload.single('document'), async (req, res) => 
         const itemTotal = Number(item.unitCost) * Number(item.quantity)
         
         await conn.query(
-          'INSERT INTO purchase_items (purchase_id, product_id, quantity, unit_cost, total_cost, serials) VALUES (?, ?, ?, ?, ?, ?)',
-          [purchaseId, item.productId, item.quantity, item.unitCost, itemTotal, item.serials || null]
+          'INSERT INTO purchase_items (purchase_id, product_id, quantity, unit_cost, total, total_cost, serials) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          [purchaseId, item.productId, item.quantity, item.unitCost, itemTotal, itemTotal, item.serials || null]
         )
 
         // Handle Product Types

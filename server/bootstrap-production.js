@@ -293,6 +293,7 @@ async function normalizeSchema(conn) {
   await ensureColumn(conn, 'purchases', 'notes', 'TEXT NULL')
   await ensureColumn(conn, 'purchases', 'warehouse_id', 'INT NULL')
   await ensureColumn(conn, 'purchases', 'document_path', 'VARCHAR(255) NULL')
+  await ensureColumn(conn, 'purchase_items', 'total', 'DECIMAL(12,2) NOT NULL DEFAULT 0')
   await ensureColumn(conn, 'purchase_items', 'total_cost', 'DECIMAL(12,2) NOT NULL DEFAULT 0')
   await ensureColumn(conn, 'purchase_items', 'serials', 'TEXT NULL')
 
@@ -302,6 +303,19 @@ async function normalizeSchema(conn) {
       SET total_cost = total
       WHERE (total_cost IS NULL OR total_cost = 0) AND total IS NOT NULL
     `)
+    await conn.query(`
+      UPDATE purchase_items
+      SET total = total_cost
+      WHERE (total IS NULL OR total = 0) AND total_cost IS NOT NULL
+    `)
+    try {
+      await conn.query(`
+        ALTER TABLE purchase_items
+        MODIFY COLUMN total DECIMAL(12,2) NOT NULL DEFAULT 0
+      `)
+    } catch (error) {
+      console.warn(`Could not normalize purchase_items.total: ${error.message}`)
+    }
   }
 
   await ensureColumn(conn, 'sales', 'payment_method', `VARCHAR(50) DEFAULT 'CASH'`)
