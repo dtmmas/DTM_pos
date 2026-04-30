@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "node server.js",
     "start": "node server.js",
+    "bootstrap:prod": "node bootstrap-production.js",
     "seed": "node seeds/seed.js",
     "migrate": "node migrations/migrate.js",
     "seed:departments": "node seeds/seed_departments.js",

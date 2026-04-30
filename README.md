@@ -165,14 +165,19 @@ Edita `server/.env` con tus credenciales reales de MySQL y tu dominio final.
 
 ### 5. Base de datos
 
-- Crea la base `dtmpos`
-- Importa `db/schema.sql`
-- Ejecuta migraciones necesarias:
+- Para un VPS nuevo o una base vacia, usa el bootstrap completo.
+- Este comando aplica `db/schema.sql`, normaliza columnas runtime, crea permisos/RBAC y genera el admin inicial.
 
 ```bash
 cd /var/www/dtmpos/server
-npm run migrate
+npm run bootstrap:prod
 ```
+
+- Credenciales iniciales por defecto:
+  - Email: `admin@local`
+  - Password: `admin123`
+- Puedes cambiarlas antes de ejecutar el bootstrap ajustando `DEFAULT_ADMIN_EMAIL` y `DEFAULT_ADMIN_PASSWORD` en `server/.env`.
+- `npm run migrate` queda como migracion incremental, no como inicializacion completa.
 
 ### 6. Levantar API con PM2
 
@@ -246,6 +251,7 @@ npm run preview
 
 ```bash
 npm run dev
+npm run bootstrap:prod
 npm run migrate
 npm run seed
 npm run seed:shelves
