@@ -234,6 +234,14 @@ async function applySchema(conn) {
 }
 
 async function normalizeSchema(conn) {
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS units (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      code VARCHAR(20) NOT NULL UNIQUE,
+      name VARCHAR(100) NOT NULL
+    )
+  `)
+
   await ensureColumn(conn, 'roles', 'description', 'VARCHAR(255) NULL')
   await ensureColumn(conn, 'roles', 'code', 'VARCHAR(64) NULL')
   await conn.query(`UPDATE roles SET code = UPPER(REPLACE(name, ' ', '_')) WHERE code IS NULL OR code = ''`)
