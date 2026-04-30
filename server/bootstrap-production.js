@@ -249,6 +249,22 @@ async function normalizeSchema(conn) {
   await ensureColumn(conn, 'users', 'role_id', 'INT NULL')
   await ensureColumn(conn, 'users', 'warehouse_id', 'INT NULL DEFAULT 1')
 
+  await ensureColumn(conn, 'products', 'brand_id', 'INT NULL')
+  await ensureColumn(conn, 'products', 'supplier_id', 'INT NULL')
+  await ensureColumn(conn, 'products', 'price2', 'DECIMAL(12,2) NOT NULL DEFAULT 0')
+  await ensureColumn(conn, 'products', 'price3', 'DECIMAL(12,2) NOT NULL DEFAULT 0')
+  await ensureColumn(conn, 'products', 'cost', 'DECIMAL(12,2) NOT NULL DEFAULT 0')
+  await ensureColumn(conn, 'products', 'initial_stock', 'INT NOT NULL DEFAULT 0')
+  await ensureColumn(conn, 'products', 'min_stock', 'INT NOT NULL DEFAULT 0')
+  await ensureColumn(conn, 'products', 'unit', 'VARCHAR(50) NULL')
+  await ensureColumn(conn, 'products', 'description', 'TEXT NULL')
+  await ensureColumn(conn, 'products', 'image_url', 'VARCHAR(255) NULL')
+  await ensureColumn(conn, 'products', 'product_code', 'VARCHAR(80) NULL')
+  await ensureColumn(conn, 'products', 'product_type', `VARCHAR(20) NOT NULL DEFAULT 'GENERAL'`)
+  await ensureColumn(conn, 'products', 'alt_name', 'VARCHAR(160) NULL')
+  await ensureColumn(conn, 'products', 'generic_name', 'VARCHAR(160) NULL')
+  await ensureColumn(conn, 'products', 'shelf_location', 'VARCHAR(100) NULL')
+
   await conn.query(`
     CREATE TABLE IF NOT EXISTS permissions (
       id INT AUTO_INCREMENT PRIMARY KEY,
