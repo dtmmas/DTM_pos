@@ -97,6 +97,10 @@ export default function Purchases() {
           </thead>
           <tbody>
             {purchases.map(p => (
+              (() => {
+                const status = (p.status || 'COMPLETED').toUpperCase()
+                const isCompleted = status === 'COMPLETED'
+                return (
               <tr key={p.id} style={{ borderBottom: '1px solid var(--border)' }}>
                 <td style={{ padding: 12 }}>#{p.id}</td>
                 <td style={{ padding: 12 }}>{new Date(p.created_at).toLocaleString()}</td>
@@ -110,12 +114,12 @@ export default function Purchases() {
                   <span style={{ 
                     padding: '4px 8px', 
                     borderRadius: 4, 
-                    backgroundColor: p.status === 'COMPLETED' ? 'rgba(46, 204, 113, 0.2)' : 'rgba(239, 68, 68, 0.2)',
-                    color: p.status === 'COMPLETED' ? '#2ecc71' : '#ef4444',
+                    backgroundColor: isCompleted ? 'rgba(46, 204, 113, 0.2)' : 'rgba(239, 68, 68, 0.2)',
+                    color: isCompleted ? '#2ecc71' : '#ef4444',
                     fontWeight: 'bold',
                     fontSize: '0.8rem'
                   }}>
-                    {p.status === 'COMPLETED' ? 'COMPLETADO' : p.status}
+                    {isCompleted ? 'COMPLETADO' : status}
                   </span>
                 </td>
                 <td style={{ padding: 12, textAlign: 'center' }}>
@@ -128,6 +132,8 @@ export default function Purchases() {
                   </button>
                 </td>
               </tr>
+                )
+              })()
             ))}
             {purchases.length === 0 && !loading && (
               <tr>

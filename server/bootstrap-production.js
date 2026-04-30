@@ -291,6 +291,7 @@ async function normalizeSchema(conn) {
 
   await ensureColumn(conn, 'purchases', 'user_id', 'INT NULL')
   await ensureColumn(conn, 'purchases', 'notes', 'TEXT NULL')
+  await ensureColumn(conn, 'purchases', 'status', `VARCHAR(20) NOT NULL DEFAULT 'COMPLETED'`)
   await ensureColumn(conn, 'purchases', 'warehouse_id', 'INT NULL')
   await ensureColumn(conn, 'purchases', 'document_path', 'VARCHAR(255) NULL')
   await ensureColumn(conn, 'purchase_items', 'total', 'DECIMAL(12,2) NOT NULL DEFAULT 0')

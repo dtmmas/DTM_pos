@@ -30,7 +30,7 @@ router.get('/', authMiddleware, async (req, res) => {
 
     const pool = await getPool()
     let query = `
-      SELECT p.*, s.name as supplier_name, u.name as user_name, w.name as warehouse_name
+      SELECT p.*, COALESCE(p.status, 'COMPLETED') as status, s.name as supplier_name, u.name as user_name, w.name as warehouse_name
       FROM purchases p 
       LEFT JOIN suppliers s ON p.supplier_id = s.id
       LEFT JOIN users u ON p.user_id = u.id
@@ -83,7 +83,7 @@ router.get('/:id', authMiddleware, async (req, res) => {
     const pool = await getPool()
     
     const [rows] = await pool.query(`
-      SELECT p.*, s.name as supplier_name, u.name as user_name, w.name as warehouse_name
+      SELECT p.*, COALESCE(p.status, 'COMPLETED') as status, s.name as supplier_name, u.name as user_name, w.name as warehouse_name
       FROM purchases p
       LEFT JOIN suppliers s ON p.supplier_id = s.id
       LEFT JOIN users u ON p.user_id = u.id
@@ -137,8 +137,8 @@ router.post('/', authMiddleware, upload.single('document'), async (req, res) => 
 
       // 1. Crear Compra
       const [result] = await conn.query(
-        'INSERT INTO purchases (supplier_id, user_id, doc_no, total, notes, warehouse_id, document_path) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [supplierId || null, userId || null, docNo || null, total, notes || null, warehouseId || null, documentPath]
+        'INSERT INTO purchases (supplier_id, user_id, doc_no, total, notes, status, warehouse_id, document_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        [supplierId || null, userId || null, docNo || null, total, notes || null, 'COMPLETED', warehouseId || null, documentPath]
       )
       const purchaseId = result.insertId
 
