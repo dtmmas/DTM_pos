@@ -278,3 +278,4 @@ npm run seed:shelves
 ## Repositorio
 
 - GitHub: [https://github.com/dtmmas/DTM_pos](https://github.com/dtmmas/DTM_pos)
+- Tutorial VPS paso a paso: [HOSTINGER_VPS_TUTORIAL.md](file:///c:/Users/HP/Desktop/PRoyectos%20generados%20con%20ia/proyecto%20trae%202/DTMPos/HOSTINGER_VPS_TUTORIAL.md)
