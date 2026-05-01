@@ -306,6 +306,7 @@ export async function getCreditPayments(id: number) {
     reference: string
     created_at: string
     received_by: string
+    document_url?: string | null
   }>
 }
 

@@ -6,6 +6,37 @@ import { getPool } from '../db.js'
 import { uploadsDir } from '../paths.js'
 
 const router = express.Router()
+const schemaCache = new Map()
+
+async function getExistingColumns(pool, table, columns) {
+  const cacheKey = `${table}:${columns.sort().join(',')}`
+  const cached = schemaCache.get(cacheKey)
+  if (cached) return cached
+
+  const placeholders = columns.map(() => '?').join(', ')
+  const [rows] = await pool.query(
+    `SELECT COLUMN_NAME
+     FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = ?
+       AND COLUMN_NAME IN (${placeholders})`,
+    [table, ...columns]
+  )
+
+  const existing = new Set(rows.map(row => row.COLUMN_NAME))
+  schemaCache.set(cacheKey, existing)
+  return existing
+}
+
+async function getCreditPaymentsSchema(pool) {
+  return getExistingColumns(pool, 'credit_payments', [
+    'payment_method',
+    'reference',
+    'document_url',
+    'received_by',
+    'paid_at',
+  ])
+}
 
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
@@ -29,6 +60,10 @@ router.get('/', authMiddleware, async (req, res) => {
     const endDate = (req.query.endDate || '').toString().trim()
     
     const pool = await getPool()
+    const salesColumns = await getExistingColumns(pool, 'sales', ['status'])
+    const salesStatusFilter = salesColumns.has('status')
+      ? `COALESCE(s.status, 'COMPLETED') != 'CANCELLED'`
+      : '1 = 1'
     
     let query = `
       SELECT 
@@ -44,7 +79,7 @@ router.get('/', authMiddleware, async (req, res) => {
       FROM installments i 
       JOIN sales s ON i.sale_id = s.id 
       LEFT JOIN customers c ON s.customer_id = c.id 
-      WHERE s.status != 'CANCELLED'
+      WHERE ${salesStatusFilter}
     `
     
     const params = []
@@ -85,12 +120,20 @@ router.get('/:id/payments', authMiddleware, async (req, res) => {
   try {
     const installmentId = req.params.id
     const pool = await getPool()
+    const columns = await getCreditPaymentsSchema(pool)
     
     const [rows] = await pool.query(
-      `SELECT id, amount, payment_method, reference, paid_at as created_at, received_by, document_url 
+      `SELECT 
+         id,
+         amount,
+         ${columns.has('payment_method') ? `COALESCE(payment_method, 'CASH')` : `'CASH'`} as payment_method,
+         ${columns.has('reference') ? 'reference' : 'NULL'} as reference,
+         ${columns.has('paid_at') ? 'paid_at' : 'CURRENT_TIMESTAMP'} as created_at,
+         ${columns.has('received_by') ? 'received_by' : 'NULL'} as received_by,
+         ${columns.has('document_url') ? 'document_url' : 'NULL'} as document_url
        FROM credit_payments 
        WHERE installment_id = ? 
-       ORDER BY paid_at DESC`,
+       ORDER BY ${columns.has('paid_at') ? 'paid_at' : 'id'} DESC, id DESC`,
       [installmentId]
     )
     
@@ -122,6 +165,7 @@ router.post('/pay', authMiddleware, upload.single('document'), async (req, res) 
     }
 
     const pool = await getPool()
+    const paymentColumns = await getCreditPaymentsSchema(pool)
     const conn = await pool.getConnection()
 
     try {
@@ -152,9 +196,33 @@ router.post('/pay', authMiddleware, upload.single('document'), async (req, res) 
       }
 
       // 2. Registrar pago
+      const insertColumns = ['installment_id', 'amount']
+      const insertValues = [installmentId, amount]
+
+      if (paymentColumns.has('payment_method')) {
+        insertColumns.push('payment_method')
+        insertValues.push(paymentMethod || 'CASH')
+      }
+      if (paymentColumns.has('reference')) {
+        insertColumns.push('reference')
+        insertValues.push(reference || null)
+      }
+      if (paymentColumns.has('document_url')) {
+        insertColumns.push('document_url')
+        insertValues.push(documentUrl)
+      }
+      if (paymentColumns.has('received_by')) {
+        insertColumns.push('received_by')
+        insertValues.push(responsible || null)
+      }
+      if (paymentColumns.has('paid_at')) {
+        insertColumns.push('paid_at')
+        insertValues.push(finalPaymentDate)
+      }
+
       const [result] = await conn.query(
-        'INSERT INTO credit_payments (installment_id, amount, payment_method, reference, document_url, received_by, paid_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [installmentId, amount, paymentMethod || 'CASH', reference || null, documentUrl, responsible || null, finalPaymentDate]
+        `INSERT INTO credit_payments (${insertColumns.join(', ')}) VALUES (${insertColumns.map(() => '?').join(', ')})`,
+        insertValues
       )
       const paymentId = result.insertId
 

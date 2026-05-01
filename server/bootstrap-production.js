@@ -326,6 +326,11 @@ async function normalizeSchema(conn) {
   await ensureColumn(conn, 'sales', 'status', `VARCHAR(20) NOT NULL DEFAULT 'COMPLETED'`)
   await ensureColumn(conn, 'sales', 'cancellation_reason', 'TEXT NULL')
 
+  await ensureColumn(conn, 'credit_payments', 'payment_method', `VARCHAR(20) NOT NULL DEFAULT 'CASH'`)
+  await ensureColumn(conn, 'credit_payments', 'reference', 'VARCHAR(160) NULL')
+  await ensureColumn(conn, 'credit_payments', 'document_url', 'VARCHAR(255) NULL')
+  await ensureColumn(conn, 'credit_payments', 'received_by', 'VARCHAR(160) NULL')
+
   await ensureColumn(conn, 'sale_items', 'serial', 'VARCHAR(100) NULL')
   await ensureColumn(conn, 'sale_items', 'imei', 'VARCHAR(50) NULL')
 

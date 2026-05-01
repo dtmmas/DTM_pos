@@ -46,6 +46,8 @@ export default function Credits() {
 
   // History state
   const [historyModalOpen, setHistoryModalOpen] = useState(false)
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyError, setHistoryError] = useState('')
   const [historyPayments, setHistoryPayments] = useState<Payment[]>([])
   const [selectedCreditHistory, setSelectedCreditHistory] = useState<Credit | null>(null)
 
@@ -95,18 +97,25 @@ export default function Credits() {
 
   async function openHistoryModal(credit: Credit) {
     setSelectedCreditHistory(credit)
+    setHistoryPayments([])
+    setHistoryError('')
     setHistoryModalOpen(true)
+    setHistoryLoading(true)
     try {
       const payments = await getCreditPayments(credit.id)
       setHistoryPayments(payments)
     } catch (err) {
       console.error(err)
-      alert('Error cargando historial')
+      setHistoryError((err as any)?.response?.data?.error || 'Error cargando historial')
+    } finally {
+      setHistoryLoading(false)
     }
   }
 
   function closeHistoryModal() {
     setHistoryModalOpen(false)
+    setHistoryLoading(false)
+    setHistoryError('')
     setHistoryPayments([])
     setSelectedCreditHistory(null)
   }
@@ -241,7 +250,7 @@ export default function Credits() {
       loadCredits()
     } catch (err) {
       console.error(err)
-      alert('Error registrando pago')
+      alert((err as any)?.response?.data?.error || 'Error registrando pago')
     } finally {
       setProcessingPayment(false)
     }
@@ -555,7 +564,19 @@ export default function Credits() {
                 </tr>
               </thead>
               <tbody>
-                {historyPayments.length === 0 ? (
+                {historyLoading ? (
+                  <tr>
+                    <td colSpan={7} style={{ padding: '2rem', textAlign: 'center', color: 'var(--muted)' }}>
+                      Cargando historial...
+                    </td>
+                  </tr>
+                ) : historyError ? (
+                  <tr>
+                    <td colSpan={7} style={{ padding: '2rem', textAlign: 'center', color: '#ef4444' }}>
+                      {historyError}
+                    </td>
+                  </tr>
+                ) : historyPayments.length === 0 ? (
                   <tr>
                     <td colSpan={7} style={{ padding: '2rem', textAlign: 'center', color: 'var(--muted)' }}>
                       No hay pagos registrados
@@ -589,7 +610,7 @@ export default function Credits() {
                       <td style={{ padding: '1rem', textAlign: 'center' }}>
                         {payment.document_url ? (
                           <a 
-                            href={`http://localhost:4003${payment.document_url}`} 
+                            href={payment.document_url}
                             target="_blank" 
                             rel="noopener noreferrer"
                             style={{ 
