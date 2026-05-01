@@ -1,15 +1,21 @@
-import { Outlet, Link, useNavigate } from 'react-router-dom'
-import { useRef } from 'react'
+import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
 import { useAuthStore } from '../store/auth'
 import { useConfigStore } from '../store/config'
 import { useThemeStore } from '../store/theme'
 
 export default function Layout() {
+  const location = useLocation()
   const navigate = useNavigate()
   const { user, logout, hasPermission } = useAuthStore()
   const config = useConfigStore(s => s.config)
   const { mode, setMode } = useThemeStore()
   const posWindowRef = useRef<Window | null>(null)
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+
+  useEffect(() => {
+    setMobileMenuOpen(false)
+  }, [location.pathname])
 
   const openPOSWindow = () => {
     const posUrl = new URL('/pos', window.location.origin).toString()
@@ -50,7 +56,7 @@ export default function Layout() {
             <small>{config?.currency ?? 'USD'}</small>
           </div>
         </div>
-        <nav className="nav">
+        <nav className="nav nav-desktop">
           <Link to="/" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
@@ -193,7 +199,7 @@ export default function Layout() {
             </div>
           </div>
         </nav>
-        <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+        <div className="header-actions">
           <div className="view-toggle" aria-label="Selector de tema">
             <button className={`toggle-btn ${mode === 'light' ? 'active' : ''}`} onClick={() => setMode('light')}>Claro</button>
             <button className={`toggle-btn ${mode === 'dark' ? 'active' : ''}`} onClick={() => setMode('dark')}>Oscuro</button>
@@ -203,8 +209,89 @@ export default function Layout() {
             <span>{user?.name} ({user?.role})</span>
             <button onClick={logout}>Salir</button>
           </div>
+          <button
+            type="button"
+            className="mobile-menu-btn"
+            onClick={() => setMobileMenuOpen(prev => !prev)}
+            aria-label={mobileMenuOpen ? 'Cerrar menu' : 'Abrir menu'}
+            aria-expanded={mobileMenuOpen}
+          >
+            {mobileMenuOpen ? 'Cerrar' : 'Menu'}
+          </button>
         </div>
       </header>
+      <div className={`mobile-menu ${mobileMenuOpen ? 'open' : ''}`}>
+        <div className="mobile-menu-section">
+          <Link to="/">Dashboard</Link>
+          {hasPermission('sales:create') && (
+            <button type="button" onClick={openPOSWindow}>Ventas / POS</button>
+          )}
+          {(hasPermission('cash:view') || hasPermission('cash:open') || hasPermission('cash:movements') || hasPermission('cash:close') || hasPermission('sales:create')) && (
+            <Link to="/cash-register">Caja</Link>
+          )}
+        </div>
+
+        {(hasPermission('credits:read') || hasPermission('purchases:read')) && (
+          <div className="mobile-menu-section">
+            <div className="mobile-menu-title">Procesos</div>
+            {hasPermission('credits:read') && <Link to="/credits">Créditos</Link>}
+            {hasPermission('purchases:read') && <Link to="/purchases">Compras</Link>}
+          </div>
+        )}
+
+        {(hasPermission('products:read') || hasPermission('customers:read') || hasPermission('categories:read') || hasPermission('brands:read') || hasPermission('departments:read') || hasPermission('units:read') || hasPermission('suppliers:read')) && (
+          <div className="mobile-menu-section">
+            <div className="mobile-menu-title">Catalogo</div>
+            {hasPermission('products:read') && <Link to="/products">Productos</Link>}
+            {hasPermission('customers:read') && <Link to="/customers">Clientes</Link>}
+            {hasPermission('categories:read') && <Link to="/categories">Categorías</Link>}
+            {hasPermission('brands:read') && <Link to="/brands">Marcas</Link>}
+            {hasPermission('departments:read') && <Link to="/departments">Departamentos</Link>}
+            {hasPermission('units:read') && <Link to="/units">Unidades</Link>}
+            {hasPermission('suppliers:read') && <Link to="/suppliers">Proveedores</Link>}
+          </div>
+        )}
+
+        {hasPermission('products:read') && (
+          <div className="mobile-menu-section">
+            <div className="mobile-menu-title">Inventario</div>
+            <Link to="/inventory">Movimientos</Link>
+            <Link to="/inventory/report">Reporte stock</Link>
+          </div>
+        )}
+
+        {(hasPermission('shelves:read') || hasPermission('warehouses:read') || true) && (
+          <div className="mobile-menu-section">
+            <div className="mobile-menu-title">Almacenes</div>
+            <Link to="/warehouses">Almacenes / Tiendas</Link>
+            <Link to="/transfers">Traslados</Link>
+            {hasPermission('shelves:read') && <Link to="/shelves">Ubicaciones</Link>}
+          </div>
+        )}
+
+        {(hasPermission('sales:read') || hasPermission('credits:read') || hasPermission('cash:view') || hasPermission('cash:close')) && (
+          <div className="mobile-menu-section">
+            <div className="mobile-menu-title">Reportes</div>
+            {hasPermission('sales:read') && <Link to="/sales">Historial ventas</Link>}
+            {hasPermission('credits:read') && <Link to="/credit-reports">Reporte créditos</Link>}
+            {(hasPermission('cash:view') || hasPermission('cash:close')) && <Link to="/cash-history">Cierres de caja</Link>}
+          </div>
+        )}
+
+        <div className="mobile-menu-section">
+          <div className="mobile-menu-title">Sistema</div>
+          {hasPermission('config:read') && <Link to="/config">Config</Link>}
+          {hasPermission('logs:read') && <Link to="/logs">Logs</Link>}
+          {hasPermission('users:read') && <Link to="/users">Usuarios</Link>}
+          {hasPermission('roles:read') && <Link to="/roles">Roles</Link>}
+        </div>
+
+        <div className="mobile-menu-section">
+          <div className="mobile-menu-title">Sesion</div>
+          <div className="mobile-menu-user">{user?.name} ({user?.role})</div>
+          <button type="button" onClick={logout}>Salir</button>
+        </div>
+      </div>
       <main className="main">
         <Outlet />
       </main>

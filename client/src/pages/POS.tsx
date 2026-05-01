@@ -803,8 +803,8 @@ export default function POS() {
   }
 
   return (
-    <div className="pos-container" style={{ display: 'flex', height: '100%', gap: 20, padding: 20 }}>
-      <div style={{ position: 'fixed', top: 12, right: 12, display: 'flex', gap: 10, zIndex: 3000 }}>
+    <div className="pos-container">
+      <div className="pos-floating-actions">
         <button
           type="button"
           className="btn-secondary"
@@ -826,19 +826,9 @@ export default function POS() {
         </button>
       </div>
       {/* Left: Products */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 20, minHeight: 0 }}>
+      <div className="pos-left-panel">
         {/* Header: Search & Filter */}
-        <div style={{ 
-          display: 'flex', 
-          flexWrap: 'wrap',
-          gap: 16, 
-          padding: 16, 
-          backgroundColor: 'var(--modal)', 
-          borderRadius: 16, 
-          border: '1px solid var(--border)',
-          alignItems: 'center',
-          marginBottom: 0
-        }}>
+        <div className="pos-filters">
           <div style={{ position: 'relative', flex: '1 1 250px' }}>
              <svg 
                width="20" 
@@ -988,19 +978,7 @@ export default function POS() {
         </div>
 
         {/* Grid */}
-        <div style={{ 
-          display: 'grid', 
-          gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', 
-          gap: 16,
-          justifyItems: 'stretch',
-          overflowY: 'auto',
-          paddingRight: 8,
-          flex: 1,
-          minHeight: 0,
-          alignItems: 'start',
-          alignContent: 'start',
-          gridAutoRows: 280
-        }}>
+        <div className="pos-grid">
           {filteredProducts.map(p => (
             <div 
               key={p.id} 
@@ -1094,15 +1072,7 @@ export default function POS() {
       </div>
 
       {/* Right: Cart */}
-      <div style={{ 
-        width: 360, 
-        backgroundColor: 'var(--modal)', 
-        border: '1px solid var(--border)', 
-        borderRadius: 12, 
-        display: 'flex', 
-        flexDirection: 'column',
-        boxShadow: '-2px 0 10px rgba(0,0,0,0.05)'
-      }}>
+      <div className="pos-cart">
         <div style={{ padding: 16, borderBottom: '1px solid var(--border)', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
           <span style={{ fontWeight: 600, fontSize: '1.2rem', color: 'var(--text)' }}>Orden Actual</span>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>

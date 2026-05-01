@@ -134,8 +134,8 @@ export default function Dashboard() {
   }, [products])
 
   return (
-    <div style={{ padding: 20, maxWidth: 1200, margin: '0 auto' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+    <div className="page-shell page-shell--narrow">
+      <div className="page-toolbar" style={{ marginBottom: 20 }}>
         <h2 style={{ margin: 0 }}>Dashboard</h2>
         
         {/* Filtros de Fecha */}
@@ -181,7 +181,7 @@ export default function Dashboard() {
           </div>
 
           {/* Tables Grid */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: 20 }}>
+          <div className="responsive-stats-grid">
             
             {/* Low Stock Table */}
             <div className="card">
@@ -189,24 +189,26 @@ export default function Dashboard() {
               {topLowStock.length === 0 ? (
                 <div className="muted" style={{ padding: 10 }}>Todo en orden.</div>
               ) : (
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr style={{ borderBottom: '2px solid var(--border)', textAlign: 'left', fontSize: '0.85rem' }}>
-                      <th style={{ padding: 8 }}>Producto</th>
-                      <th style={{ padding: 8, textAlign: 'right' }}>Stock</th>
-                      <th style={{ padding: 8, textAlign: 'right' }}>Mín</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {topLowStock.map(p => (
-                      <tr key={p.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                        <td style={{ padding: 8 }}>{p.name}</td>
-                        <td style={{ padding: 8, textAlign: 'right', fontWeight: 'bold', color: '#ef4444' }}>{p.stock}</td>
-                        <td style={{ padding: 8, textAlign: 'right', color: 'var(--muted)' }}>{p.minStock}</td>
+                <div className="table-scroll">
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '2px solid var(--border)', textAlign: 'left', fontSize: '0.85rem' }}>
+                        <th style={{ padding: 8 }}>Producto</th>
+                        <th style={{ padding: 8, textAlign: 'right' }}>Stock</th>
+                        <th style={{ padding: 8, textAlign: 'right' }}>Mín</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {topLowStock.map(p => (
+                        <tr key={p.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                          <td style={{ padding: 8 }}>{p.name}</td>
+                          <td style={{ padding: 8, textAlign: 'right', fontWeight: 'bold', color: '#ef4444' }}>{p.stock}</td>
+                          <td style={{ padding: 8, textAlign: 'right', color: 'var(--muted)' }}>{p.minStock}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               )}
             </div>
 
@@ -227,51 +229,55 @@ export default function Dashboard() {
               {upcomingCredits.length === 0 ? (
                 <div className="muted" style={{ padding: 10 }}>Sin vencimientos próximos.</div>
               ) : (
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr style={{ borderBottom: '2px solid var(--border)', textAlign: 'left', fontSize: '0.85rem' }}>
-                      <th style={{ padding: 8 }}>Fecha</th>
-                      <th style={{ padding: 8 }}>Cliente</th>
-                      <th style={{ padding: 8, textAlign: 'right' }}>Monto</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {upcomingCredits.map(i => (
-                      <tr key={i.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                        <td style={{ padding: 8, fontSize: '0.9rem' }}>{i.dueDate}</td>
-                        <td style={{ padding: 8, fontSize: '0.9rem' }}>
-                            <div>{i.customerName}</div>
-                            <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>{i.docNo || `V-${i.saleId}`}</div>
-                        </td>
-                        <td style={{ padding: 8, textAlign: 'right', fontWeight: 600 }}>{formatMoney(i.amount, currency)}</td>
+                <div className="table-scroll">
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '2px solid var(--border)', textAlign: 'left', fontSize: '0.85rem' }}>
+                        <th style={{ padding: 8 }}>Fecha</th>
+                        <th style={{ padding: 8 }}>Cliente</th>
+                        <th style={{ padding: 8, textAlign: 'right' }}>Monto</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {upcomingCredits.map(i => (
+                        <tr key={i.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                          <td style={{ padding: 8, fontSize: '0.9rem' }}>{i.dueDate}</td>
+                          <td style={{ padding: 8, fontSize: '0.9rem' }}>
+                              <div>{i.customerName}</div>
+                              <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>{i.docNo || `V-${i.saleId}`}</div>
+                          </td>
+                          <td style={{ padding: 8, textAlign: 'right', fontWeight: 600 }}>{formatMoney(i.amount, currency)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               )}
             </div>
 
             {/* Recent Products */}
             <div className="card">
               <h3>Productos Recientes</h3>
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr style={{ borderBottom: '2px solid var(--border)', textAlign: 'left', fontSize: '0.85rem' }}>
-                    <th style={{ padding: 8 }}>Producto</th>
-                    <th style={{ padding: 8, textAlign: 'right' }}>Precio</th>
-                    <th style={{ padding: 8, textAlign: 'right' }}>Stock</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {recentProducts.map(p => (
-                    <tr key={p.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                      <td style={{ padding: 8 }}>{p.name}</td>
-                      <td style={{ padding: 8, textAlign: 'right' }}>{formatMoney(p.price, currency)}</td>
-                      <td style={{ padding: 8, textAlign: 'right' }}>{p.stock}</td>
+              <div className="table-scroll">
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '2px solid var(--border)', textAlign: 'left', fontSize: '0.85rem' }}>
+                      <th style={{ padding: 8 }}>Producto</th>
+                      <th style={{ padding: 8, textAlign: 'right' }}>Precio</th>
+                      <th style={{ padding: 8, textAlign: 'right' }}>Stock</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {recentProducts.map(p => (
+                      <tr key={p.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                        <td style={{ padding: 8 }}>{p.name}</td>
+                        <td style={{ padding: 8, textAlign: 'right' }}>{formatMoney(p.price, currency)}</td>
+                        <td style={{ padding: 8, textAlign: 'right' }}>{p.stock}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
 
           </div>

@@ -968,11 +968,11 @@ export default function Products() {
   }
 
   return (
-    <div style={{ padding: 20 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+    <div className="page-shell">
+      <div className="page-toolbar">
         <h2 style={{ margin: 0 }}>Productos</h2>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <input placeholder="Buscar..." value={query} onChange={e => setQuery(e.target.value)} style={{ width: 280 }} />
+        <div className="page-toolbar-actions">
+          <input placeholder="Buscar..." value={query} onChange={e => setQuery(e.target.value)} style={{ width: 280, maxWidth: '100%' }} />
           <div style={{ fontSize: 12, color: 'var(--muted)' }}>
             Mostrando {filtered.length} de {products.length}
             {hasActiveFilters && (
@@ -1009,7 +1009,7 @@ export default function Products() {
       </div>
 
       {(brands.length > 0 || suppliers.length > 0 || departments.length > 0) && (
-        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, marginBottom: 12 }}>
+        <div className="filters-row">
           {departments.length > 0 && (
             <div>
               <label style={{ fontSize: 12, color: 'var(--muted)' }}>Departamento</label>
@@ -1086,7 +1086,7 @@ export default function Products() {
       {!loading && (
         <>
           {view === 'grid' ? (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 18 }}>
+            <div className="products-grid">
               {filtered.map(p => (
                 <div
                   key={p.id}
@@ -1228,7 +1228,7 @@ export default function Products() {
               ))}
             </div>
           ) : (
-            <div style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+            <div className="products-list table-scroll">
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead style={{ background: 'var(--modal)' }}>
                   <tr>
@@ -1358,7 +1358,7 @@ export default function Products() {
 
       {showProductTypeSelector && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ width: 400, background: 'var(--modal)', border: '1px solid var(--border)', borderRadius: 12, padding: 20 }}>
+          <div className="responsive-modal" style={{ width: 400, background: 'var(--modal)', border: '1px solid var(--border)', borderRadius: 12, padding: 20 }}>
             <h3 style={{ margin: 0, marginBottom: 20, textAlign: 'center' }}>Seleccionar tipo de producto</h3>
             
             <div style={{ display: 'grid', gap: 12 }}>
@@ -1450,7 +1450,7 @@ export default function Products() {
 
       {showCreate && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ width: 920, maxWidth: '94vw', background: 'var(--modal)', border: '1px solid var(--border)', borderRadius: 24, padding: 20, maxHeight: '92vh', overflowY: 'auto', boxShadow: '0 24px 60px rgba(15, 23, 42, 0.22)' }}>
+          <div className="responsive-modal" style={{ width: 920, maxWidth: '94vw', background: 'var(--modal)', border: '1px solid var(--border)', borderRadius: 24, padding: 20, maxHeight: '92vh', overflowY: 'auto', boxShadow: '0 24px 60px rgba(15, 23, 42, 0.22)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
               <div>
                 <h3 style={{ margin: 0, fontSize: 24 }}>
@@ -1475,7 +1475,7 @@ export default function Products() {
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr', gap: 18, alignItems: 'start' }}>
+            <div className="responsive-two-col">
               <div style={{ background: 'linear-gradient(180deg, var(--bg), var(--surface))', border: '1px solid var(--border)', borderRadius: 22, padding: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
                 <div style={{ width: '100%', height: 240, borderRadius: 18, overflow: 'hidden', border: '1px solid var(--border)', background: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   {formState.imagePreview ? (
@@ -1501,7 +1501,7 @@ export default function Products() {
               <div style={{ display: 'grid', gap: 14 }}>
                 <div style={{ border: '1px solid var(--border)', borderRadius: 20, padding: 16, background: 'var(--modal)' }}>
                   <div style={{ fontWeight: 700, marginBottom: 12 }}>Informacion principal</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div className="responsive-form-grid">
                     <div>
                       <label>Código de producto</label>
                       <input value={formState.productCode} onChange={e => onFormChange('productCode', e.target.value)} />
@@ -1527,7 +1527,7 @@ export default function Products() {
 
                 <div style={{ border: '1px solid var(--border)', borderRadius: 20, padding: 16, background: 'var(--modal)' }}>
                   <div style={{ fontWeight: 700, marginBottom: 12 }}>Precios y unidad</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12 }}>
+                  <div className="responsive-form-grid">
                     <div>
                       <label>Precio costo</label>
                       <input type="number" value={formState.cost} onChange={(e) => onFormChange('cost', e.target.value)} placeholder="0.00" />
@@ -1568,7 +1568,7 @@ export default function Products() {
 
                 <div style={{ border: '1px solid var(--border)', borderRadius: 20, padding: 16, background: 'var(--modal)' }}>
                   <div style={{ fontWeight: 700, marginBottom: 12 }}>Clasificacion y relaciones</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div className="responsive-form-grid">
                     <div>
                       <label>Marca</label>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1631,7 +1631,7 @@ export default function Products() {
                     </div>
                     <div style={{ gridColumn: '1 / -1' }}>
                       <label>Categoría</label>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr auto', gap: 8, alignItems: 'center' }}>
+                      <div className="responsive-category-grid">
                         <select value={formParentId ?? ''} onChange={e => { const v = e.target.value ? Number(e.target.value) : null; setFormParentId(v); onFormChange('categoryId', ''); }}>
                           <option value="">— Selecciona categoría general —</option>
                           {parentCategories.map(c => (
@@ -1669,7 +1669,7 @@ export default function Products() {
                 {formState.productType === 'MEDICINAL' && (
                   <div style={{ border: '1px solid var(--border)', borderRadius: 20, padding: 16, background: 'var(--modal)' }}>
                     <div style={{ fontWeight: 700, marginBottom: 12 }}>Datos medicinales</div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    <div className="responsive-form-grid">
                       <div>
                         <label>Nombre alternativo</label>
                         <input value={formState.altName} onChange={e => onFormChange('altName', e.target.value)} />
@@ -1723,7 +1723,7 @@ export default function Products() {
 
       {quickAddModal !== 'none' && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1001 }}>
-          <div style={{ width: 420, background: 'var(--modal)', border: '1px solid var(--border)', borderRadius: 12, padding: 16 }}>
+          <div className="responsive-modal" style={{ width: 420, background: 'var(--modal)', border: '1px solid var(--border)', borderRadius: 12, padding: 16 }}>
             <h3 style={{ margin: 0, marginBottom: 12 }}>
               {quickAddModal === 'unit' ? 'Nueva unidad' 
                 : quickAddModal === 'brand' ? 'Nueva marca' 
@@ -1788,7 +1788,7 @@ export default function Products() {
       {showDetails && (
         <>
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <div style={{ width: 840, maxWidth: '92vw', maxHeight: '88vh', overflowY: 'auto', background: 'var(--modal)', border: '1px solid var(--border)', borderRadius: 24, padding: 20, boxShadow: '0 24px 60px rgba(15, 23, 42, 0.22)' }}>
+            <div className="responsive-detail-modal" style={{ width: 840, maxWidth: '92vw', maxHeight: '88vh', overflowY: 'auto', background: 'var(--modal)', border: '1px solid var(--border)', borderRadius: 24, padding: 20, boxShadow: '0 24px 60px rgba(15, 23, 42, 0.22)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
               <div>
                 <h3 style={{ margin: 0, fontSize: 24 }}>Detalle de producto</h3>
@@ -1809,7 +1809,7 @@ export default function Products() {
             {detailsError && <div style={{ color: '#ef4444' }}>{detailsError}</div>}
             {!detailsLoading && !detailsError && details && (
                 <div style={{ display: 'grid', gap: 12 }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr', gap: 18, alignItems: 'stretch' }}>
+                  <div className="responsive-two-col" style={{ alignItems: 'stretch' }}>
                     <div style={{ background: 'linear-gradient(180deg, var(--bg), var(--surface))', border: '1px solid var(--border)', borderRadius: 22, padding: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
                       <div style={{ width: '100%', height: 240, borderRadius: 18, overflow: 'hidden', background: 'var(--bg)', border: '1px solid var(--border)' }}>
                         <img src={details.imageUrl || 'https://via.placeholder.com/800x800?text=IMG'} alt={details.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
@@ -1866,7 +1866,7 @@ export default function Products() {
                         </div>
                       </div>
 
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 12 }}>
+                      <div className="responsive-three-col">
                         <div style={{ padding: 16, borderRadius: 18, background: 'var(--bg)', border: '1px solid var(--border)' }}>
                           <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>Precio venta</div>
                           <div style={{ fontWeight: 800, fontSize: 22, color: 'var(--text)' }}>{formatMoney(details.price ?? 0, currency)}</div>
@@ -1881,7 +1881,7 @@ export default function Products() {
                         </div>
                       </div>
 
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 12 }}>
+                      <div className="responsive-three-col">
                         <div style={{ padding: 14, borderRadius: 18, background: 'var(--modal)', border: '1px solid var(--border)' }}>
                           <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>Precio 2</div>
                           <div style={{ fontWeight: 700, fontSize: 18 }}>{formatMoney(details.price2 ?? 0, currency)}</div>
