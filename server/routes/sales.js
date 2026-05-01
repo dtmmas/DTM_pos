@@ -5,58 +5,321 @@ import { registerMovement } from '../services/inventory.js'
 
 const router = express.Router()
 
+async function columnExists(db, table, column) {
+  const [rows] = await db.query(`SHOW COLUMNS FROM \`${table}\` LIKE ?`, [column])
+  return Array.isArray(rows) && rows.length > 0
+}
+
+async function fkExists(db, table, fkName) {
+  const [rows] = await db.query(
+    `SELECT COUNT(*) AS c
+     FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = ?
+       AND CONSTRAINT_NAME = ?
+       AND CONSTRAINT_TYPE = 'FOREIGN KEY'`,
+    [table, fkName]
+  )
+  return Number(rows?.[0]?.c || 0) > 0
+}
+
+async function ensureSalesSchema(db) {
+  const hasSalesUserId = await columnExists(db, 'sales', 'user_id')
+  if (!hasSalesUserId) {
+    await db.query('ALTER TABLE sales ADD COLUMN user_id INT NULL')
+  }
+
+  if (!(await fkExists(db, 'sales', 'fk_sales_user'))) {
+    try {
+      await db.query(`
+        ALTER TABLE sales
+        ADD CONSTRAINT fk_sales_user
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+      `)
+    } catch (error) {
+      console.warn(`Skipped fk_sales_user: ${error.message}`)
+    }
+  }
+
+  // Completa ventas históricas usando primero inventory_movements y luego caja.
+  await db.query(`
+    UPDATE sales s
+    LEFT JOIN (
+      SELECT reference_id AS sale_id, MAX(user_id) AS user_id
+      FROM inventory_movements
+      WHERE type = 'SALE'
+        AND reference_id IS NOT NULL
+        AND user_id IS NOT NULL
+      GROUP BY reference_id
+    ) sale_inventory_user ON sale_inventory_user.sale_id = s.id
+    SET s.user_id = sale_inventory_user.user_id
+    WHERE (s.user_id IS NULL OR s.user_id = 0)
+      AND sale_inventory_user.user_id IS NOT NULL
+  `)
+
+  await db.query(`
+    UPDATE sales s
+    LEFT JOIN (
+      SELECT cm.ref_id AS sale_id, MAX(cs.opened_by) AS opened_by
+      FROM cash_movements cm
+      JOIN cashbox_shifts cs ON cs.id = cm.shift_id
+      WHERE cm.ref_type = 'SALE' AND cm.ref_id IS NOT NULL
+      GROUP BY cm.ref_id
+    ) sale_shift ON sale_shift.sale_id = s.id
+    SET s.user_id = sale_shift.opened_by
+    WHERE (s.user_id IS NULL OR s.user_id = 0)
+      AND sale_shift.opened_by IS NOT NULL
+  `)
+}
+
+async function buildSalesContext(db) {
+  await ensureSalesSchema(db)
+  const hasSalesUserId = await columnExists(db, 'sales', 'user_id')
+
+  return {
+    hasSalesUserId,
+    sellerIdExpr: hasSalesUserId
+      ? 'COALESCE(s.user_id, sale_inventory_user.user_id, sale_shift.opened_by)'
+      : 'COALESCE(sale_inventory_user.user_id, sale_shift.opened_by)',
+    sellerNameExpr: hasSalesUserId
+      ? "COALESCE(su.name, iu.name, cu.name, 'SIN USUARIO')"
+      : "COALESCE(iu.name, cu.name, 'SIN USUARIO')",
+    sellerJoin: hasSalesUserId
+      ? `
+        LEFT JOIN users su ON su.id = s.user_id
+        LEFT JOIN users iu ON iu.id = sale_inventory_user.user_id
+      `
+      : 'LEFT JOIN users iu ON iu.id = sale_inventory_user.user_id',
+    baseJoins: `
+      LEFT JOIN customers c ON s.customer_id = c.id
+      LEFT JOIN (
+        SELECT sale_id, MIN(paid) AS credit_fully_paid
+        FROM installments
+        GROUP BY sale_id
+      ) i ON i.sale_id = s.id
+      LEFT JOIN (
+        SELECT si.sale_id,
+               COALESCE(SUM(si.quantity * COALESCE(p.cost, 0)), 0) AS cost_total,
+               COALESCE(SUM(si.total - (si.quantity * COALESCE(p.cost, 0))), 0) AS profit
+        FROM sale_items si
+        JOIN products p ON p.id = si.product_id
+        GROUP BY si.sale_id
+      ) calc ON calc.sale_id = s.id
+      LEFT JOIN (
+        SELECT reference_id AS sale_id, MAX(user_id) AS user_id
+        FROM inventory_movements
+        WHERE type = 'SALE'
+          AND reference_id IS NOT NULL
+          AND user_id IS NOT NULL
+        GROUP BY reference_id
+      ) sale_inventory_user ON sale_inventory_user.sale_id = s.id
+      LEFT JOIN (
+        SELECT cm.ref_id AS sale_id, MAX(cs.opened_by) AS opened_by
+        FROM cash_movements cm
+        JOIN cashbox_shifts cs ON cs.id = cm.shift_id
+        WHERE cm.ref_type = 'SALE' AND cm.ref_id IS NOT NULL
+        GROUP BY cm.ref_id
+      ) sale_shift ON sale_shift.sale_id = s.id
+      LEFT JOIN users cu ON cu.id = sale_shift.opened_by
+    `,
+  }
+}
+
+function getSalesFilters(req, context, forceUserId = null) {
+  const search = (req.query.search || '').toString().trim()
+  const startDate = (req.query.startDate || '').toString().slice(0, 10)
+  const endDate = (req.query.endDate || '').toString().slice(0, 10)
+  const requestedUserId = Number(req.query.userId || 0)
+  const effectiveUserId = forceUserId || (req.user?.role === 'ADMIN' ? requestedUserId : Number(req.user?.id || 0))
+  const where = []
+  const params = []
+
+  if (search) {
+    where.push(`(s.doc_no LIKE ? OR c.name LIKE ? OR s.id = ? OR ${context.sellerNameExpr} LIKE ?)`)
+    params.push(`%${search}%`, `%${search}%`, Number(search) || 0, `%${search}%`)
+  }
+  if (startDate) {
+    where.push('DATE(s.created_at) >= ?')
+    params.push(startDate)
+  }
+  if (endDate) {
+    where.push('DATE(s.created_at) <= ?')
+    params.push(endDate)
+  }
+  if (effectiveUserId > 0) {
+    where.push(`${context.sellerIdExpr} = ?`)
+    params.push(effectiveUserId)
+  }
+
+  return {
+    whereClause: where.length ? `WHERE ${where.join(' AND ')}` : '',
+    params,
+  }
+}
+
+function buildSalesSelect(context, canSeeProfit) {
+  return `
+    SELECT s.*, c.name AS customer_name,
+           i.credit_fully_paid,
+           ${canSeeProfit ? 'COALESCE(calc.cost_total, 0)' : 'NULL'} AS cost_total,
+           ${canSeeProfit ? "CASE WHEN s.status = 'CANCELLED' THEN 0 ELSE COALESCE(calc.profit, 0) END" : 'NULL'} AS profit,
+           ${context.sellerIdExpr} AS seller_id,
+           ${context.sellerNameExpr} AS seller_name
+    FROM sales s
+    ${context.baseJoins}
+    ${context.sellerJoin}
+  `
+}
+
 // Listar ventas (historial)
 router.get('/', authMiddleware, async (req, res) => {
   try {
     const limit = Math.max(1, Number(req.query.limit || 50))
     const offset = Math.max(0, Number(req.query.offset || 0))
-    const search = (req.query.search || '').toString().trim()
-
     const pool = await getPool()
-    let query = `
-      SELECT s.*, c.name as customer_name,
-             i.paid as credit_fully_paid
-      FROM sales s 
-      LEFT JOIN customers c ON s.customer_id = c.id
-      LEFT JOIN installments i ON s.id = i.sale_id
+    await ensureSalesSchema(pool)
+    const context = await buildSalesContext(pool)
+    const canSeeProfit = req.user?.role === 'ADMIN'
+    const { whereClause, params } = getSalesFilters(req, context)
+    const query = `
+      ${buildSalesSelect(context, canSeeProfit)}
+      ${whereClause}
+      ORDER BY s.created_at DESC
+      LIMIT ? OFFSET ?
     `
-    const params = []
+    const rowsParams = [...params, limit, offset]
+    const [rows] = await pool.query(query, rowsParams)
 
-    if (search) {
-      query += ` WHERE s.doc_no LIKE ? OR c.name LIKE ? OR s.id = ?`
-      params.push(`%${search}%`, `%${search}%`, search)
-    }
-
-    query += ` ORDER BY s.created_at DESC LIMIT ? OFFSET ?`
-    params.push(limit, offset)
-
-    const [rows] = await pool.query(query, params)
-    
-    // Get total count for pagination
-    let countQuery = `
-      SELECT COUNT(*) as total 
-      FROM sales s 
-      LEFT JOIN customers c ON s.customer_id = c.id
+    const countQuery = `
+      SELECT COUNT(*) AS total
+      FROM sales s
+      ${context.baseJoins}
+      ${context.sellerJoin}
+      ${whereClause}
     `
-    const countParams = []
-    if (search) {
-      countQuery += ` WHERE s.doc_no LIKE ? OR c.name LIKE ? OR s.id = ?`
-      countParams.push(`%${search}%`, `%${search}%`, search)
-    }
-    const [countRows] = await pool.query(countQuery, countParams)
-    const totalRecords = countRows[0].total
+    const [countRows] = await pool.query(countQuery, params)
+    const totalRecords = Number(countRows?.[0]?.total || 0)
 
-    res.json({
+    const [summaryRows] = await pool.query(
+      `
+        SELECT COUNT(*) AS records,
+               COALESCE(SUM(s.total), 0) AS gross_total,
+               COALESCE(SUM(CASE WHEN s.status = 'CANCELLED' THEN 0 ELSE s.total END), 0) AS net_total,
+               COALESCE(SUM(CASE WHEN s.status = 'CANCELLED' THEN 0 ELSE COALESCE(calc.profit, 0) END), 0) AS total_profit,
+               COALESCE(SUM(CASE WHEN s.status = 'CANCELLED' THEN 1 ELSE 0 END), 0) AS cancelled_count
+        FROM sales s
+        ${context.baseJoins}
+        ${context.sellerJoin}
+        ${whereClause}
+      `,
+      params
+    )
+
+    const byUserRows = canSeeProfit
+      ? (await pool.query(
+          `
+            SELECT ${context.sellerIdExpr} AS user_id,
+                   ${context.sellerNameExpr} AS user_name,
+                   COUNT(*) AS sales_count,
+                   COALESCE(SUM(s.total), 0) AS gross_total,
+                   COALESCE(SUM(CASE WHEN s.status = 'CANCELLED' THEN 0 ELSE s.total END), 0) AS total,
+                   COALESCE(SUM(CASE WHEN s.status = 'CANCELLED' THEN 0 ELSE COALESCE(calc.profit, 0) END), 0) AS profit,
+                   COALESCE(SUM(CASE WHEN s.status = 'CANCELLED' THEN 1 ELSE 0 END), 0) AS cancelled_count
+            FROM sales s
+            ${context.baseJoins}
+            ${context.sellerJoin}
+            ${whereClause}
+            GROUP BY ${context.sellerIdExpr}, ${context.sellerNameExpr}
+            ORDER BY total DESC, sales_count DESC, user_name ASC
+          `,
+          params
+        ))[0]
+      : []
+
+    return res.json({
       data: rows,
       pagination: {
         total: totalRecords,
         limit,
-        offset
-      }
+        offset,
+      },
+      summary: {
+        records: Number(summaryRows?.[0]?.records || 0),
+        grossTotal: Number(summaryRows?.[0]?.gross_total || 0),
+        netTotal: Number(summaryRows?.[0]?.net_total || 0),
+        totalProfit: canSeeProfit ? Number(summaryRows?.[0]?.total_profit || 0) : 0,
+        cancelledCount: Number(summaryRows?.[0]?.cancelled_count || 0),
+      },
+      byUser: (byUserRows || []).map(row => ({
+        userId: row.user_id ? Number(row.user_id) : null,
+        userName: row.user_name || 'SIN USUARIO',
+        salesCount: Number(row.sales_count || 0),
+        grossTotal: Number(row.gross_total || 0),
+        total: Number(row.total || 0),
+        profit: Number(row.profit || 0),
+        cancelledCount: Number(row.cancelled_count || 0),
+      })),
     })
   } catch (err) {
     console.error('Sales list error:', err)
     res.status(500).json({ error: 'Server error' })
+  }
+})
+
+router.get('/my-report', authMiddleware, async (req, res) => {
+  try {
+    const limit = Math.max(1, Number(req.query.limit || 50))
+    const offset = Math.max(0, Number(req.query.offset || 0))
+    const pool = await getPool()
+    await ensureSalesSchema(pool)
+    const context = await buildSalesContext(pool)
+    const { whereClause, params } = getSalesFilters(req, context, Number(req.user?.id || 0))
+    const query = `
+      ${buildSalesSelect(context, false)}
+      ${whereClause}
+      ORDER BY s.created_at DESC
+      LIMIT ? OFFSET ?
+    `
+    const [rows] = await pool.query(query, [...params, limit, offset])
+    const [countRows] = await pool.query(
+      `
+        SELECT COUNT(*) AS total
+        FROM sales s
+        ${context.baseJoins}
+        ${context.sellerJoin}
+        ${whereClause}
+      `,
+      params
+    )
+    const [summaryRows] = await pool.query(
+      `
+        SELECT COUNT(*) AS records,
+               COALESCE(SUM(CASE WHEN s.status = 'CANCELLED' THEN 0 ELSE s.total END), 0) AS net_total,
+               COALESCE(SUM(CASE WHEN s.status = 'CANCELLED' THEN 1 ELSE 0 END), 0) AS cancelled_count
+        FROM sales s
+        ${context.baseJoins}
+        ${context.sellerJoin}
+        ${whereClause}
+      `,
+      params
+    )
+
+    return res.json({
+      data: rows,
+      pagination: {
+        total: Number(countRows?.[0]?.total || 0),
+        limit,
+        offset,
+      },
+      summary: {
+        records: Number(summaryRows?.[0]?.records || 0),
+        netTotal: Number(summaryRows?.[0]?.net_total || 0),
+        cancelledCount: Number(summaryRows?.[0]?.cancelled_count || 0),
+      },
+    })
+  } catch (err) {
+    console.error('My sales report error:', err)
+    return res.status(500).json({ error: 'Server error' })
   }
 })
 
@@ -74,6 +337,8 @@ router.post('/', authMiddleware, async (req, res) => {
 
     try {
       await conn.beginTransaction()
+      await ensureSalesSchema(conn)
+      const hasSalesUserId = await columnExists(conn, 'sales', 'user_id')
 
       const [shiftRows] = await conn.query(
         'SELECT id, opened_at, opening_balance FROM cashbox_shifts WHERE opened_by = ? AND closed_at IS NULL ORDER BY id DESC LIMIT 1 FOR UPDATE',
@@ -88,10 +353,13 @@ router.post('/', authMiddleware, async (req, res) => {
       const finalPaymentMethod = paymentMethod || (isCredit ? 'CREDIT' : 'CASH')
 
       // 1. Crear Venta
-      const [saleResult] = await conn.query(
-        'INSERT INTO sales (customer_id, doc_no, total, is_credit, payment_method, received_amount, change_amount, reference_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-        [customerId || null, docNo || null, total, isCredit ? 1 : 0, finalPaymentMethod, receivedAmount || 0, changeAmount || 0, referenceNumber || null]
-      )
+      const saleInsertSql = hasSalesUserId
+        ? 'INSERT INTO sales (customer_id, user_id, doc_no, total, is_credit, payment_method, received_amount, change_amount, reference_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        : 'INSERT INTO sales (customer_id, doc_no, total, is_credit, payment_method, received_amount, change_amount, reference_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+      const saleInsertParams = hasSalesUserId
+        ? [customerId || null, req.user.id, docNo || null, total, isCredit ? 1 : 0, finalPaymentMethod, receivedAmount || 0, changeAmount || 0, referenceNumber || null]
+        : [customerId || null, docNo || null, total, isCredit ? 1 : 0, finalPaymentMethod, receivedAmount || 0, changeAmount || 0, referenceNumber || null]
+      const [saleResult] = await conn.query(saleInsertSql, saleInsertParams)
       const saleId = saleResult.insertId
 
       // 1.1 Si es crédito, crear cuota inicial (installment)
@@ -266,16 +534,28 @@ router.get('/:id', authMiddleware, async (req, res) => {
   try {
     const saleId = req.params.id
     const pool = await getPool()
+    await ensureSalesSchema(pool)
+    const context = await buildSalesContext(pool)
+    const canSeeProfit = req.user?.role === 'ADMIN'
+    const ownerFilter = canSeeProfit ? '' : ` AND ${context.sellerIdExpr} = ?`
+    const saleParams = canSeeProfit ? [saleId] : [saleId, Number(req.user?.id || 0)]
     
     // Venta header
-    const [saleRows] = await pool.query(`
-      SELECT s.*, c.name as customer_name, c.document as customer_document, c.address as customer_address, c.phone as customer_phone,
-             i.paid as credit_fully_paid
-      FROM sales s 
-      LEFT JOIN customers c ON s.customer_id = c.id
-      LEFT JOIN installments i ON s.id = i.sale_id
-      WHERE s.id = ?
-    `, [saleId])
+    const [saleRows] = await pool.query(
+      `
+        SELECT s.*, c.name AS customer_name, c.document AS customer_document, c.address AS customer_address, c.phone AS customer_phone,
+               i.credit_fully_paid,
+               ${canSeeProfit ? 'COALESCE(calc.cost_total, 0)' : 'NULL'} AS cost_total,
+               ${canSeeProfit ? "CASE WHEN s.status = 'CANCELLED' THEN 0 ELSE COALESCE(calc.profit, 0) END" : 'NULL'} AS profit,
+               ${context.sellerIdExpr} AS seller_id,
+               ${context.sellerNameExpr} AS seller_name
+        FROM sales s
+        ${context.baseJoins}
+        ${context.sellerJoin}
+        WHERE s.id = ?${ownerFilter}
+      `,
+      saleParams
+    )
     
     if (saleRows.length === 0) {
       return res.status(404).json({ error: 'Venta no encontrada' })

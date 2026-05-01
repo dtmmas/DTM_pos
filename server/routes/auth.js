@@ -48,8 +48,8 @@ router.post('/login', async (req, res) => {
         name: user.name,
         role: user.role_code || user.role_name || 'USER', // Fallback
         permissions,
-        warehouseId: user.warehouse_id || 1, // Default to 1 if not set
-        warehouseName: user.warehouse_name || 'PRINCIPAL' // Default name if not found
+        warehouseId: user.warehouse_id ?? null,
+        warehouseName: user.warehouse_name ?? null
       }
 
       const token = signToken(userData)

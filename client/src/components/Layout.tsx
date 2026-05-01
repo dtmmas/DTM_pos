@@ -176,7 +176,7 @@ export default function Layout() {
                 <span>REPORTES</span>
               </button>
               <div className="nav-panel">
-                {hasPermission('sales:read') && <Link to="/sales">Historial Ventas</Link>}
+                {hasPermission('sales:read') && (user?.role === 'ADMIN' ? <Link to="/sales">Historial Ventas</Link> : <Link to="/my-sales">Mis Ventas</Link>)}
                 {hasPermission('credits:read') && <Link to="/credit-reports">Reporte Créditos</Link>}
                 {(hasPermission('cash:view') || hasPermission('cash:close')) && <Link to="/cash-history">Cierres de Caja</Link>}
               </div>
@@ -272,7 +272,7 @@ export default function Layout() {
         {(hasPermission('sales:read') || hasPermission('credits:read') || hasPermission('cash:view') || hasPermission('cash:close')) && (
           <div className="mobile-menu-section">
             <div className="mobile-menu-title">Reportes</div>
-            {hasPermission('sales:read') && <Link to="/sales">Historial ventas</Link>}
+            {hasPermission('sales:read') && (user?.role === 'ADMIN' ? <Link to="/sales">Historial ventas</Link> : <Link to="/my-sales">Mis ventas</Link>)}
             {hasPermission('credits:read') && <Link to="/credit-reports">Reporte créditos</Link>}
             {(hasPermission('cash:view') || hasPermission('cash:close')) && <Link to="/cash-history">Cierres de caja</Link>}
           </div>

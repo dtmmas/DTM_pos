@@ -142,6 +142,7 @@ Notas:
 ## 8. Inicializar toda la base correctamente
 
 Este paso deja lista la base para produccion. Crea y normaliza tablas, columnas, roles, permisos y admin inicial.
+No siembra catalogos de negocio por defecto: `unidades`, `marcas`, `proveedores`, `departamentos`, `estanterías` ni `almacenes`.
 
 ```bash
 cd /var/www/dtmpos/server
@@ -267,6 +268,8 @@ Credenciales iniciales:
 
 - Email: `admin@local`
 - Password: `admin123`
+- El admin inicial queda sin almacén asignado.
+- Después del bootstrap debes crear manualmente los catálogos y al menos un almacén antes de usar POS, inventario, compras o traslados.
 
 ## 15. Validaciones despues del login
 

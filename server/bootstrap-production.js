@@ -247,7 +247,15 @@ async function normalizeSchema(conn) {
   await conn.query(`UPDATE roles SET code = UPPER(REPLACE(name, ' ', '_')) WHERE code IS NULL OR code = ''`)
 
   await ensureColumn(conn, 'users', 'role_id', 'INT NULL')
-  await ensureColumn(conn, 'users', 'warehouse_id', 'INT NULL DEFAULT 1')
+  await ensureColumn(conn, 'users', 'warehouse_id', 'INT NULL')
+  try {
+    await conn.query(`
+      ALTER TABLE users
+      MODIFY COLUMN warehouse_id INT NULL DEFAULT NULL
+    `)
+  } catch (error) {
+    console.warn(`Could not normalize users.warehouse_id: ${error.message}`)
+  }
 
   await ensureColumn(conn, 'products', 'brand_id', 'INT NULL')
   await ensureColumn(conn, 'products', 'supplier_id', 'INT NULL')
@@ -283,11 +291,6 @@ async function normalizeSchema(conn) {
   await ensureColumn(conn, 'warehouses', 'type', `ENUM('ALMACEN','TIENDA') NOT NULL DEFAULT 'ALMACEN'`)
   await ensureColumn(conn, 'warehouses', 'address', 'VARCHAR(255) NULL')
   await ensureColumn(conn, 'warehouses', 'status', `ENUM('ACTIVO','INACTIVO') NOT NULL DEFAULT 'ACTIVO'`)
-  await conn.query(`
-    INSERT IGNORE INTO warehouses (id, name, type, status)
-    VALUES (1, 'TIENDA PRINCIPAL', 'TIENDA', 'ACTIVO')
-  `)
-  await conn.query(`UPDATE warehouses SET type = 'TIENDA', status = 'ACTIVO' WHERE id = 1`)
 
   await ensureColumn(conn, 'purchases', 'user_id', 'INT NULL')
   await ensureColumn(conn, 'purchases', 'notes', 'TEXT NULL')
@@ -325,6 +328,7 @@ async function normalizeSchema(conn) {
   await ensureColumn(conn, 'sales', 'reference_number', 'VARCHAR(120) NULL')
   await ensureColumn(conn, 'sales', 'status', `VARCHAR(20) NOT NULL DEFAULT 'COMPLETED'`)
   await ensureColumn(conn, 'sales', 'cancellation_reason', 'TEXT NULL')
+  await ensureColumn(conn, 'sales', 'user_id', 'INT NULL')
 
   await ensureColumn(conn, 'credit_payments', 'payment_method', `VARCHAR(20) NOT NULL DEFAULT 'CASH'`)
   await ensureColumn(conn, 'credit_payments', 'reference', 'VARCHAR(160) NULL')
@@ -416,6 +420,7 @@ async function normalizeSchema(conn) {
   await ensureForeignKey(conn, 'users', 'warehouse_id', 'warehouses', 'fk_users_warehouse', 'SET NULL')
   await ensureForeignKey(conn, 'purchases', 'user_id', 'users', 'fk_purchases_user', 'SET NULL')
   await ensureForeignKey(conn, 'purchases', 'warehouse_id', 'warehouses', 'fk_purchases_warehouse', 'SET NULL')
+  await ensureForeignKey(conn, 'sales', 'user_id', 'users', 'fk_sales_user', 'SET NULL')
   await ensureForeignKey(conn, 'product_batches', 'warehouse_id', 'warehouses', 'fk_batches_warehouse')
   await ensureForeignKey(conn, 'product_imeis', 'warehouse_id', 'warehouses', 'fk_imeis_warehouse')
   await ensureForeignKey(conn, 'product_serials', 'warehouse_id', 'warehouses', 'fk_serials_warehouse')
@@ -474,58 +479,23 @@ async function seedSecurity(conn) {
     WHERE u.role_id IS NULL AND u.role IS NOT NULL
   `)
 
-  await conn.query(`UPDATE users SET warehouse_id = 1 WHERE warehouse_id IS NULL`)
-
   const passwordHash = await bcrypt.hash(adminPassword, 10)
   await conn.query(
     `INSERT INTO users (name, email, password, role, role_id, warehouse_id, active)
-     VALUES (?, ?, ?, 'ADMIN', ?, 1, 1)
+     VALUES (?, ?, ?, 'ADMIN', ?, NULL, 1)
      ON DUPLICATE KEY UPDATE
        name = VALUES(name),
        password = VALUES(password),
        role = 'ADMIN',
        role_id = VALUES(role_id),
-       warehouse_id = 1,
        active = 1`,
     ['Admin', adminEmail, passwordHash, roleIds.ADMIN]
   )
 }
 
 async function seedCatalogData(conn) {
-  const [units] = await conn.query('SELECT COUNT(*) AS c FROM units')
-  if (Number(units?.[0]?.c || 0) === 0) {
-    await conn.query('INSERT INTO units (code, name) VALUES ?', [[
-      ['UND', 'Unidad'],
-      ['CJ', 'Caja'],
-      ['PAQ', 'Paquete'],
-      ['BOT', 'Botella'],
-      ['KG', 'Kilogramo'],
-      ['G', 'Gramo'],
-      ['L', 'Litro'],
-      ['ML', 'Mililitro'],
-    ]])
-  }
-
-  const [brands] = await conn.query('SELECT COUNT(*) AS c FROM brands')
-  if (Number(brands?.[0]?.c || 0) === 0) {
-    await conn.query('INSERT INTO brands (name) VALUES (?), (?), (?)', ['Generica', 'Acme', 'Contoso'])
-  }
-
-  const [suppliers] = await conn.query('SELECT COUNT(*) AS c FROM suppliers')
-  if (Number(suppliers?.[0]?.c || 0) === 0) {
-    await conn.query('INSERT INTO suppliers (name) VALUES (?), (?), (?)', ['Proveedor Generico', 'Distribuidora Acme', 'Mayorista Contoso'])
-  }
-
-  const [departments] = await conn.query('SELECT COUNT(*) AS c FROM departments')
-  if (Number(departments?.[0]?.c || 0) === 0) {
-    await conn.query('INSERT INTO departments (name) VALUES (?), (?), (?)', ['INFORMATICA', 'FARMACIA', 'FERRETERIA'])
-  }
-
-  const [shelves] = await conn.query('SELECT COUNT(*) AS c FROM shelves')
-  if (Number(shelves?.[0]?.c || 0) === 0) {
-    const defaults = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2', 'D1', 'D2']
-    await conn.query(`INSERT INTO shelves (name) VALUES ${defaults.map(() => '(?)').join(', ')}`, defaults)
-  }
+  console.log('Skipping business catalog seed (units, brands, suppliers, departments, shelves, warehouses).')
+  console.log('Create business catalogs manually after bootstrap.')
 }
 
 async function main() {
@@ -542,7 +512,7 @@ async function main() {
     console.log('Seeding roles, permissions and admin...')
     await seedSecurity(conn)
 
-    console.log('Seeding base catalog data...')
+    console.log('Leaving business catalogs empty...')
     await seedCatalogData(conn)
 
     console.log(`Bootstrap complete for database "${dbName}".`)

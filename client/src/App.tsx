@@ -17,6 +17,7 @@ import Shelves from './pages/Shelves'
 import POS from './pages/POS'
 import Customers from './pages/Customers'
 import Sales from './pages/Sales'
+import MySalesReport from './pages/MySalesReport'
 import Credits from './pages/Credits'
 import CreditReports from './pages/CreditReports'
 import Logs from './pages/Logs'
@@ -64,7 +65,8 @@ export default function App() {
         <Route path="inventory/report" element={<PermissionGuard permission="products:read"><InventoryReport /></PermissionGuard>} />
         <Route path="customers" element={<PermissionGuard permission="customers:read"><Customers /></PermissionGuard>} />
         <Route path="credits" element={<PermissionGuard permission="credits:read"><Credits /></PermissionGuard>} />
-        <Route path="sales" element={<PermissionGuard permission="sales:read"><Sales /></PermissionGuard>} />
+        <Route path="sales" element={<PermissionGuard permission="sales:read"><RoleGuard roles={['ADMIN']}><Sales /></RoleGuard></PermissionGuard>} />
+        <Route path="my-sales" element={<PermissionGuard permission="sales:read"><MySalesReport /></PermissionGuard>} />
         <Route path="purchases" element={<PermissionGuard permission="purchases:read"><Purchases /></PermissionGuard>} />
         <Route path="purchases/new" element={<PermissionGuard permission="purchases:write"><PurchaseCreate /></PermissionGuard>} />
         <Route path="purchases/:id" element={<PermissionGuard permission="purchases:read"><PurchaseDetails /></PermissionGuard>} />

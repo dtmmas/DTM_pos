@@ -188,9 +188,83 @@ export async function getSalesSummary(start?: string, end?: string) {
   return data as { total: number; start: string | null; end: string | null }
 }
 
-export async function getSales(params: { page?: number; limit?: number; search?: string; offset?: number }) {
+export async function getSales(params: { page?: number; limit?: number; search?: string; offset?: number; startDate?: string; endDate?: string; userId?: number | string }) {
   const { data } = await api.get('/sales', { params })
-  return data
+  return data as {
+    data: Array<{
+      id: number
+      doc_no: string
+      total: number
+      created_at: string
+      payment_method: string
+      customer_name?: string
+      received_amount?: number
+      change_amount?: number
+      reference_number?: string
+      is_credit?: number
+      credit_fully_paid?: number
+      status?: string
+      cancellation_reason?: string
+      seller_id?: number | null
+      seller_name?: string | null
+      cost_total?: number
+      profit?: number
+    }>
+    pagination: {
+      total: number
+      limit: number
+      offset: number
+    }
+    summary: {
+      records: number
+      grossTotal: number
+      netTotal: number
+      totalProfit: number
+      cancelledCount: number
+    }
+    byUser: Array<{
+      userId: number | null
+      userName: string
+      salesCount: number
+      grossTotal: number
+      total: number
+      profit: number
+      cancelledCount: number
+    }>
+  }
+}
+
+export async function getMySalesReport(params: { limit?: number; search?: string; offset?: number; startDate?: string; endDate?: string }) {
+  const { data } = await api.get('/sales/my-report', { params })
+  return data as {
+    data: Array<{
+      id: number
+      doc_no: string
+      total: number
+      created_at: string
+      payment_method: string
+      customer_name?: string
+      received_amount?: number
+      change_amount?: number
+      reference_number?: string
+      is_credit?: number
+      credit_fully_paid?: number
+      status?: string
+      cancellation_reason?: string
+      seller_id?: number | null
+      seller_name?: string | null
+    }>
+    pagination: {
+      total: number
+      limit: number
+      offset: number
+    }
+    summary: {
+      records: number
+      netTotal: number
+      cancelledCount: number
+    }
+  }
 }
 
 export async function getSaleDetails(id: number) {

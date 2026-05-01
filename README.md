@@ -177,6 +177,7 @@ Edita `server/.env` con tus credenciales reales de MySQL y tu dominio final.
 
 - Para un VPS nuevo o una base vacia, usa el bootstrap completo.
 - Este comando aplica `db/schema.sql`, normaliza columnas runtime, crea permisos/RBAC y genera el admin inicial.
+- `bootstrap:prod` ya no siembra catálogos de negocio: `unidades`, `marcas`, `proveedores`, `departamentos`, `estanterías` ni `almacenes`.
 
 ```bash
 cd /var/www/dtmpos/server
@@ -186,6 +187,8 @@ npm run bootstrap:prod
 - Credenciales iniciales por defecto:
   - Email: `admin@local`
   - Password: `admin123`
+- El usuario admin inicial queda sin `warehouse_id` asignado.
+- Después del bootstrap debes crear manualmente los catálogos y al menos un almacén antes de usar POS, inventario, compras o traslados.
 - Puedes cambiarlas antes de ejecutar el bootstrap ajustando `DEFAULT_ADMIN_EMAIL` y `DEFAULT_ADMIN_PASSWORD` en `server/.env`.
 - `npm run migrate` queda como migracion incremental, no como inicializacion completa.
 
