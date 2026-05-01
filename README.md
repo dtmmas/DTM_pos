@@ -19,9 +19,15 @@ DTMPos/
 
 ## Requisitos
 
-- Node.js 18 o superior
+- Node.js 20 LTS recomendado
 - MySQL 8 o compatible
 - npm
+
+Archivos de apoyo incluidos:
+
+- `.nvmrc` para fijar la version sugerida de Node
+- `.editorconfig` para formato consistente entre editores
+- `.gitattributes` para evitar falsos cambios por finales de linea
 
 ## Instalacion
 
@@ -35,11 +41,15 @@ cd DTM_pos
 ### 2. Instalar dependencias
 
 ```bash
+nvm use
+
 cd client
 npm install
 cd ../server
 npm install
 ```
+
+Si no usas `nvm`, instala manualmente Node 20 LTS.
 
 ### 3. Crear base de datos
 
@@ -256,6 +266,28 @@ npm run migrate
 npm run seed
 npm run seed:shelves
 ```
+
+## Desarrollo Diario
+
+Flujo recomendado:
+
+```bash
+nvm use
+
+cd client
+npm install
+npm run dev
+
+cd ../server
+npm install
+npm run dev
+```
+
+Notas:
+
+- El frontend corre con Vite en `5173`
+- El backend corre por defecto en `4003` cuando usas `server/.env`
+- Si Git marca cambios sin contenido real en Windows, verifica que ya tengas actualizados `.gitattributes` y `.editorconfig`
 
 ## Funcionalidades principales
 
