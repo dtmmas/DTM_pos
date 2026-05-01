@@ -186,7 +186,7 @@ export default function Sales() {
   const currentPage = Math.floor(pagination.offset / pagination.limit) + 1
 
   return (
-    <div style={{ padding: 20 }}>
+    <div className="page-shell">
       <iframe 
         ref={iframeRef} 
         style={{ 
@@ -197,21 +197,21 @@ export default function Sales() {
           visibility: 'hidden'
         }} 
       />
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+      <div className="page-toolbar" style={{ marginBottom: 20 }}>
         <h2 style={{ margin: 0 }}>Historial de Ventas</h2>
-        <form onSubmit={handleSearch} style={{ display: 'flex', gap: 10 }}>
+        <form onSubmit={handleSearch} className="page-toolbar-actions">
           <input 
             type="text" 
             placeholder="Buscar por Doc / Cliente / ID" 
             value={search}
             onChange={e => setSearch(e.target.value)}
-            style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg)', color: 'inherit', minWidth: 250 }}
+            style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg)', color: 'inherit', minWidth: 250, maxWidth: '100%' }}
           />
           <button type="submit" className="primary-btn">Buscar</button>
         </form>
       </div>
 
-      <div style={{ overflowX: 'auto', background: 'var(--modal)', borderRadius: 12, border: '1px solid var(--border)' }}>
+      <div className="table-scroll" style={{ background: 'var(--modal)', borderRadius: 12, border: '1px solid var(--border)' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ borderBottom: '1px solid var(--border)' }}>
@@ -312,7 +312,7 @@ export default function Sales() {
         </table>
       </div>
 
-      <div style={{ marginTop: 20, display: 'flex', justifyContent: 'center', gap: 10, alignItems: 'center' }}>
+      <div style={{ marginTop: 20, display: 'flex', justifyContent: 'center', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
         <button 
           className="icon-btn"
           disabled={pagination.offset === 0}
@@ -334,8 +334,8 @@ export default function Sales() {
 
       {isModalOpen && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div style={{ background: 'var(--modal)', border: '1px solid var(--border)', borderRadius: 12, padding: 24, width: '90%', maxWidth: 700, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 20, alignItems: 'center' }}>
+          <div className="responsive-modal" style={{ background: 'var(--modal)', border: '1px solid var(--border)', borderRadius: 12, padding: 24, width: '90%', maxWidth: 700, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 20, alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
               <h3 style={{ margin: 0 }}>Detalle de Venta #{selectedSale?.id}</h3>
               <button onClick={() => setIsModalOpen(false)} className="icon-btn" title="Cerrar">
                 <svg viewBox="0 0 24 24" width="20" height="20"><path d="M18 6L6 18M6 6l12 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
@@ -346,7 +346,7 @@ export default function Sales() {
               <p style={{ textAlign: 'center', color: 'var(--muted)', padding: 20 }}>Cargando detalles...</p>
             ) : (
               <div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24, background: 'var(--bg)', padding: 16, borderRadius: 8, border: '1px solid var(--border)' }}>
+                <div className="responsive-form-grid" style={{ marginBottom: 24, background: 'var(--bg)', padding: 16, borderRadius: 8, border: '1px solid var(--border)' }}>
                   <div>
                     <strong style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 2 }}>Fecha</strong>
                     {formatDate(selectedSale.created_at)}
@@ -386,7 +386,7 @@ export default function Sales() {
                   </div>
                 </div>
 
-                <div style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', marginBottom: 24 }}>
+                <div className="table-scroll" style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', marginBottom: 24 }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead style={{ background: 'var(--bg)' }}>
                       <tr style={{ borderBottom: '1px solid var(--border)' }}>
@@ -409,7 +409,7 @@ export default function Sales() {
                   </table>
                 </div>
 
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, flexWrap: 'wrap' }}>
                    <button 
                      onClick={() => setIsModalOpen(false)}
                      style={{ 
@@ -439,7 +439,7 @@ export default function Sales() {
 
       {isCancelModalOpen && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100 }}>
-          <div style={{ background: 'var(--modal)', border: '1px solid var(--border)', borderRadius: 12, padding: 24, width: '90%', maxWidth: 500, boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)' }}>
+          <div className="responsive-modal" style={{ background: 'var(--modal)', border: '1px solid var(--border)', borderRadius: 12, padding: 24, width: '90%', maxWidth: 500, boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)' }}>
             <h3 style={{ marginTop: 0 }}>Cancelar Venta #{saleToCancel?.id}</h3>
             <p style={{ color: 'var(--muted)' }}>¿Está seguro de que desea cancelar esta venta? Esta acción restaurará el stock y no se puede deshacer.</p>
             
@@ -453,7 +453,7 @@ export default function Sales() {
               />
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, flexWrap: 'wrap' }}>
               <button 
                 onClick={() => setIsCancelModalOpen(false)}
                 className="secondary-btn"

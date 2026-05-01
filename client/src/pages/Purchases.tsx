@@ -49,8 +49,8 @@ export default function Purchases() {
   }
 
   return (
-    <div style={{ padding: 20, height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+    <div className="page-shell" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+      <div className="page-toolbar" style={{ marginBottom: 20 }}>
         <h1 style={{ margin: 0 }}>Compras</h1>
         {hasPermission('purchases:write') && (
           <button 
@@ -65,6 +65,7 @@ export default function Purchases() {
 
       <div style={{ 
         display: 'flex', 
+        flexWrap: 'wrap',
         gap: 16, 
         marginBottom: 20, 
         backgroundColor: 'var(--modal)', 
@@ -81,7 +82,7 @@ export default function Purchases() {
         />
       </div>
 
-      <div style={{ flex: 1, overflow: 'auto', border: '1px solid var(--border)', borderRadius: 8, backgroundColor: 'var(--modal)' }}>
+      <div className="table-scroll" style={{ flex: 1, overflow: 'auto', border: '1px solid var(--border)', borderRadius: 8, backgroundColor: 'var(--modal)' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead style={{ position: 'sticky', top: 0, backgroundColor: 'var(--surface)', zIndex: 1 }}>
             <tr>
@@ -147,7 +148,7 @@ export default function Purchases() {
       </div>
       
       {/* Pagination */}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 10 }}>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 10, flexWrap: 'wrap' }}>
         <button 
           disabled={page === 0}
           onClick={() => setPage(p => p - 1)}

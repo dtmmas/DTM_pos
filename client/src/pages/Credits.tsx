@@ -257,11 +257,10 @@ export default function Credits() {
   }
 
   return (
-    <div style={{ padding: 20 }}>
-      <h2 style={{ margin: '0 0 20px 0' }}>Gestión de Créditos</h2>
-
-      <div style={{ marginBottom: 20, display: 'flex', gap: 16 }}>
-        <form onSubmit={handleSearch} style={{ display: 'flex', gap: 8, flex: 1 }}>
+    <div className="page-shell">
+      <div className="page-toolbar" style={{ marginBottom: 20 }}>
+        <h2 style={{ margin: 0 }}>Gestión de Créditos</h2>
+        <form onSubmit={handleSearch} className="page-toolbar-actions" style={{ flex: 1, justifyContent: 'flex-end' }}>
           <input
             type="text"
             placeholder="Buscar por cliente o No. documento..."
@@ -284,7 +283,7 @@ export default function Credits() {
       {loading ? (
         <p style={{ color: 'var(--muted)' }}>Cargando créditos...</p>
       ) : (
-        <div style={{ overflowX: 'auto', background: 'var(--modal)', borderRadius: 12, border: '1px solid var(--border)' }}>
+        <div className="table-scroll" style={{ background: 'var(--modal)', borderRadius: 12, border: '1px solid var(--border)' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ background: 'var(--modal)', borderBottom: '1px solid var(--border)' }}>
@@ -371,7 +370,7 @@ export default function Credits() {
           alignItems: 'center',
           zIndex: 1000
         }}>
-          <div style={{
+          <div className="responsive-modal" style={{
             background: 'var(--modal)',
             padding: 20,
             borderRadius: 12,
@@ -482,7 +481,7 @@ export default function Credits() {
                 </div>
               )}
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, flexWrap: 'wrap' }}>
                 <button
                   type="button"
                   onClick={closePayModal}
@@ -518,7 +517,7 @@ export default function Credits() {
           alignItems: 'center',
           zIndex: 1000
         }}>
-          <div style={{
+          <div className="responsive-modal" style={{
             backgroundColor: 'var(--modal)',
             color: 'var(--text)',
             padding: '2rem',
@@ -530,7 +529,7 @@ export default function Credits() {
             overflowY: 'auto',
             boxShadow: '0 4px 6px rgba(0,0,0,0.1)'
           }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', marginBottom: '1.5rem' }}>
               <h2 style={{ margin: 0 }}>Historial de Pagos</h2>
               <button
                 onClick={closeHistoryModal}
@@ -551,100 +550,102 @@ export default function Credits() {
               <p><strong>Documento:</strong> {selectedCreditHistory.doc_no}</p>
             </div>
 
-            <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '1.5rem' }}>
-              <thead>
-                <tr style={{ borderBottom: '1px solid var(--border)', backgroundColor: 'var(--bg)' }}>
-                  <th style={{ padding: '1rem', textAlign: 'left', minWidth: '100px' }}>Fecha</th>
-                  <th style={{ padding: '1rem', textAlign: 'right', minWidth: '100px' }}>Monto</th>
-                  <th style={{ padding: '1rem', textAlign: 'center', minWidth: '100px' }}>Método</th>
-                  <th style={{ padding: '1rem', textAlign: 'left', minWidth: '120px' }}>Ref.</th>
-                  <th style={{ padding: '1rem', textAlign: 'left', minWidth: '150px' }}>Responsable</th>
-                  <th style={{ padding: '1rem', textAlign: 'center', minWidth: '60px' }}>Doc</th>
-                  <th style={{ padding: '1rem', textAlign: 'center', minWidth: '100px' }}>Acción</th>
-                </tr>
-              </thead>
-              <tbody>
-                {historyLoading ? (
-                  <tr>
-                    <td colSpan={7} style={{ padding: '2rem', textAlign: 'center', color: 'var(--muted)' }}>
-                      Cargando historial...
-                    </td>
+            <div className="table-scroll">
+              <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '1.5rem' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--border)', backgroundColor: 'var(--bg)' }}>
+                    <th style={{ padding: '1rem', textAlign: 'left', minWidth: '100px' }}>Fecha</th>
+                    <th style={{ padding: '1rem', textAlign: 'right', minWidth: '100px' }}>Monto</th>
+                    <th style={{ padding: '1rem', textAlign: 'center', minWidth: '100px' }}>Método</th>
+                    <th style={{ padding: '1rem', textAlign: 'left', minWidth: '120px' }}>Ref.</th>
+                    <th style={{ padding: '1rem', textAlign: 'left', minWidth: '150px' }}>Responsable</th>
+                    <th style={{ padding: '1rem', textAlign: 'center', minWidth: '60px' }}>Doc</th>
+                    <th style={{ padding: '1rem', textAlign: 'center', minWidth: '100px' }}>Acción</th>
                   </tr>
-                ) : historyError ? (
-                  <tr>
-                    <td colSpan={7} style={{ padding: '2rem', textAlign: 'center', color: '#ef4444' }}>
-                      {historyError}
-                    </td>
-                  </tr>
-                ) : historyPayments.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} style={{ padding: '2rem', textAlign: 'center', color: 'var(--muted)' }}>
-                      No hay pagos registrados
-                    </td>
-                  </tr>
-                ) : (
-                  historyPayments.map(payment => (
-                    <tr key={payment.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                      <td style={{ padding: '1rem' }}>
-                        {formatDate(payment.created_at)}
-                      </td>
-                      <td style={{ padding: '1rem', textAlign: 'right', fontWeight: 'bold' }}>
-                        {config?.currency} {Number(payment.amount).toFixed(2)}
-                      </td>
-                      <td style={{ padding: '1rem', textAlign: 'center' }}>
-                        <span style={{
-                          padding: '4px 8px',
-                          borderRadius: '12px',
-                          backgroundColor: payment.payment_method === 'CASH' ? 'rgba(52, 152, 219, 0.1)' : 'rgba(241, 196, 15, 0.1)',
-                          color: payment.payment_method === 'CASH' ? '#3498db' : '#f1c40f',
-                          fontSize: '0.85rem',
-                          fontWeight: 'bold',
-                          border: `1px solid ${payment.payment_method === 'CASH' ? '#3498db' : '#f1c40f'}`
-                        }}>
-                          {payment.payment_method === 'CASH' ? 'Efectivo' : 
-                           payment.payment_method === 'CARD' ? 'Tarjeta' : 'Depósito'}
-                        </span>
-                      </td>
-                      <td style={{ padding: '1rem', color: 'var(--muted)' }}>{payment.reference || '-'}</td>
-                      <td style={{ padding: '1rem', color: 'var(--muted)' }}>{payment.received_by || '-'}</td>
-                      <td style={{ padding: '1rem', textAlign: 'center' }}>
-                        {payment.document_url ? (
-                          <a 
-                            href={payment.document_url}
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            style={{ 
-                              color: 'var(--accent)', 
-                              textDecoration: 'none', 
-                              fontWeight: 'bold',
-                              border: '1px solid var(--accent)',
-                              padding: '2px 8px',
-                              borderRadius: '4px'
-                            }}
-                          >
-                            Ver
-                          </a>
-                        ) : '-'}
-                      </td>
-                      <td style={{ padding: '1rem', textAlign: 'center' }}>
-                        <button
-                          className="icon-btn"
-                          onClick={() => printPayment(payment, selectedCreditHistory)}
-                          title="Imprimir comprobante"
-                          style={{ margin: '0 auto' }}
-                        >
-                          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <polyline points="6 9 6 2 18 2 18 9" />
-                            <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
-                            <rect x="6" y="14" width="12" height="8" />
-                          </svg>
-                        </button>
+                </thead>
+                <tbody>
+                  {historyLoading ? (
+                    <tr>
+                      <td colSpan={7} style={{ padding: '2rem', textAlign: 'center', color: 'var(--muted)' }}>
+                        Cargando historial...
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                  ) : historyError ? (
+                    <tr>
+                      <td colSpan={7} style={{ padding: '2rem', textAlign: 'center', color: '#ef4444' }}>
+                        {historyError}
+                      </td>
+                    </tr>
+                  ) : historyPayments.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} style={{ padding: '2rem', textAlign: 'center', color: 'var(--muted)' }}>
+                        No hay pagos registrados
+                      </td>
+                    </tr>
+                  ) : (
+                    historyPayments.map(payment => (
+                      <tr key={payment.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                        <td style={{ padding: '1rem' }}>
+                          {formatDate(payment.created_at)}
+                        </td>
+                        <td style={{ padding: '1rem', textAlign: 'right', fontWeight: 'bold' }}>
+                          {config?.currency} {Number(payment.amount).toFixed(2)}
+                        </td>
+                        <td style={{ padding: '1rem', textAlign: 'center' }}>
+                          <span style={{
+                            padding: '4px 8px',
+                            borderRadius: '12px',
+                            backgroundColor: payment.payment_method === 'CASH' ? 'rgba(52, 152, 219, 0.1)' : 'rgba(241, 196, 15, 0.1)',
+                            color: payment.payment_method === 'CASH' ? '#3498db' : '#f1c40f',
+                            fontSize: '0.85rem',
+                            fontWeight: 'bold',
+                            border: `1px solid ${payment.payment_method === 'CASH' ? '#3498db' : '#f1c40f'}`
+                          }}>
+                            {payment.payment_method === 'CASH' ? 'Efectivo' : 
+                             payment.payment_method === 'CARD' ? 'Tarjeta' : 'Depósito'}
+                          </span>
+                        </td>
+                        <td style={{ padding: '1rem', color: 'var(--muted)' }}>{payment.reference || '-'}</td>
+                        <td style={{ padding: '1rem', color: 'var(--muted)' }}>{payment.received_by || '-'}</td>
+                        <td style={{ padding: '1rem', textAlign: 'center' }}>
+                          {payment.document_url ? (
+                            <a 
+                              href={payment.document_url}
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              style={{ 
+                                color: 'var(--accent)', 
+                                textDecoration: 'none', 
+                                fontWeight: 'bold',
+                                border: '1px solid var(--accent)',
+                                padding: '2px 8px',
+                                borderRadius: '4px'
+                              }}
+                            >
+                              Ver
+                            </a>
+                          ) : '-'}
+                        </td>
+                        <td style={{ padding: '1rem', textAlign: 'center' }}>
+                          <button
+                            className="icon-btn"
+                            onClick={() => printPayment(payment, selectedCreditHistory)}
+                            title="Imprimir comprobante"
+                            style={{ margin: '0 auto' }}
+                          >
+                            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <polyline points="6 9 6 2 18 2 18 9" />
+                              <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+                              <rect x="6" y="14" width="12" height="8" />
+                            </svg>
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
 
             <div style={{ textAlign: 'right' }}>
               <button
