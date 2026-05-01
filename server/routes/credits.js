@@ -8,6 +8,28 @@ import { uploadsDir } from '../paths.js'
 const router = express.Router()
 const schemaCache = new Map()
 
+function normalizeDocumentUrl(value) {
+  if (!value || typeof value !== 'string') return null
+  const trimmed = value.trim()
+  if (!trimmed) return null
+
+  if (trimmed.startsWith('/uploads/')) return trimmed
+  if (trimmed.startsWith('uploads/')) return `/${trimmed}`
+
+  try {
+    const parsed = new URL(trimmed)
+    if (parsed.pathname.startsWith('/uploads/')) {
+      return `${parsed.pathname}${parsed.search || ''}${parsed.hash || ''}`
+    }
+  } catch {
+    if (trimmed.includes('/uploads/')) {
+      return trimmed.slice(trimmed.indexOf('/uploads/'))
+    }
+  }
+
+  return trimmed
+}
+
 async function getExistingColumns(pool, table, columns) {
   const cacheKey = `${table}:${columns.sort().join(',')}`
   const cached = schemaCache.get(cacheKey)
@@ -137,7 +159,10 @@ router.get('/:id/payments', authMiddleware, async (req, res) => {
       [installmentId]
     )
     
-    res.json(rows)
+    res.json(rows.map(row => ({
+      ...row,
+      document_url: normalizeDocumentUrl(row.document_url),
+    })))
   } catch (err) {
     console.error('Payments history error:', err)
     res.status(500).json({ error: 'Server error' })

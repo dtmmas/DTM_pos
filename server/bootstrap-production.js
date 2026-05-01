@@ -330,6 +330,14 @@ async function normalizeSchema(conn) {
   await ensureColumn(conn, 'credit_payments', 'reference', 'VARCHAR(160) NULL')
   await ensureColumn(conn, 'credit_payments', 'document_url', 'VARCHAR(255) NULL')
   await ensureColumn(conn, 'credit_payments', 'received_by', 'VARCHAR(160) NULL')
+  await conn.query(`
+    UPDATE credit_payments
+    SET document_url = SUBSTRING(document_url, LOCATE('/uploads/', document_url))
+    WHERE document_url IS NOT NULL
+      AND document_url != ''
+      AND LOCATE('/uploads/', document_url) > 0
+      AND document_url NOT LIKE '/uploads/%'
+  `)
 
   await ensureColumn(conn, 'sale_items', 'serial', 'VARCHAR(100) NULL')
   await ensureColumn(conn, 'sale_items', 'imei', 'VARCHAR(50) NULL')
