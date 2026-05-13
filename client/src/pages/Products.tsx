@@ -1097,7 +1097,7 @@ export default function Products() {
                     overflow: 'hidden',
                     display: 'flex',
                     flexDirection: 'column',
-                    minHeight: 430,
+                    minHeight: 418,
                     boxShadow: '0 10px 30px rgba(15, 23, 42, 0.08)'
                   }}
                 >
@@ -1107,7 +1107,7 @@ export default function Products() {
                       alt={p.name}
                       style={{
                         width: '100%',
-                        height: 220,
+                        height: 204,
                         borderRadius: 18,
                         objectFit: 'cover',
                         cursor: 'zoom-in',
