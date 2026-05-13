@@ -7,47 +7,84 @@ export default function Login() {
   const navigate = useNavigate()
   const { login } = useAuthStore()
   const config = useConfigStore(s => s.config)
-  const [email, setEmail] = useState('admin@local')
-  const [password, setPassword] = useState('admin123')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    const ok = await login(email, password)
+    setError(null)
+    setIsSubmitting(true)
+    const ok = await login(email.trim(), password)
+    setIsSubmitting(false)
     if (ok) navigate('/')
     else setError('Credenciales inválidas')
   }
 
   return (
-    <div style={{ display: 'grid', placeItems: 'center', height: '100vh', padding: 16 }}>
-      <div style={{ width: 360, maxWidth: '92vw', background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 16, padding: 24 }}>
-        {config?.logoUrl && <img src={config.logoUrl} alt="logo" style={{ width: 64, height: 64, borderRadius: 12, display: 'block', margin: '0 auto 8px' }} />}
-        <h1 style={{ textAlign: 'center', margin: '0 0 8px 0', fontSize: '1.5rem' }}>{config?.name ?? 'DTMPos'}</h1>
-        <p style={{ textAlign: 'center', margin: '0 0 24px 0', color: 'var(--muted)' }}>Moneda: {config?.currency ?? 'USD'}</p>
-        <form onSubmit={onSubmit}>
-          <label style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginBottom: 6 }}>Email</label>
-          <input 
-            value={email} 
-            onChange={(e) => setEmail(e.target.value)} 
-            placeholder="email"
-            style={{ width: '100%', padding: '10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--modal)', color: 'var(--text)', marginBottom: 16 }} 
-          />
-          <label style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginBottom: 6 }}>Contraseña</label>
-          <input 
-            type="password" 
-            value={password} 
-            onChange={(e) => setPassword(e.target.value)} 
-            placeholder="contraseña" 
-            style={{ width: '100%', padding: '10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--modal)', color: 'var(--text)' }}
-          />
-          {error && <div style={{ color: '#ef4444', marginTop: 12, fontSize: 14, textAlign: 'center' }}>{error}</div>}
-          <button 
-            type="submit"
-            style={{ width: '100%', marginTop: 24, padding: '10px', borderRadius: 8, border: 0, background: 'var(--accent)', color: '#052b35', fontWeight: 700, cursor: 'pointer' }}
-          >
-            Ingresar
-          </button>
-        </form>
+    <div className="login-shell">
+      <div className="login-backdrop" aria-hidden="true" />
+      <div className="login-layout">
+        <section className="login-panel login-panel--brand">
+          <div className="login-badge">Sistema POS</div>
+          <h1 className="login-title">{config?.name ?? 'DTMPos'}</h1>
+          <p className="login-description">
+            Accede a tu panel de ventas, inventario y caja desde una pantalla mas limpia y enfocada.
+          </p>
+          <div className="login-highlights">
+            <div className="login-highlight">
+              <span className="login-highlight-value">{config?.currency ?? 'USD'}</span>
+              <span className="login-highlight-label">Moneda base</span>
+            </div>
+            <div className="login-highlight">
+              <span className="login-highlight-value">Seguro</span>
+              <span className="login-highlight-label">Acceso privado</span>
+            </div>
+          </div>
+        </section>
+
+        <section className="login-panel login-panel--form">
+          <div className="login-card-modern">
+            {config?.logoUrl && <img src={config.logoUrl} alt="logo" className="login-logo" />}
+            <div className="login-copy">
+              <p className="login-eyebrow">Bienvenido</p>
+              <h2>Iniciar sesión</h2>
+              <p>Ingresa tus credenciales para continuar.</p>
+            </div>
+
+            <form className="login-form" onSubmit={onSubmit}>
+              <div className="login-field">
+                <label htmlFor="email">Correo</label>
+                <input
+                  id="email"
+                  autoComplete="username"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="tucorreo@dominio.com"
+                />
+              </div>
+
+              <div className="login-field">
+                <label htmlFor="password">Contraseña</label>
+                <input
+                  id="password"
+                  type="password"
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Escribe tu contraseña"
+                />
+              </div>
+
+              {error && <div className="login-error">{error}</div>}
+
+              <button className="login-submit" type="submit" disabled={isSubmitting}>
+                {isSubmitting ? 'Ingresando...' : 'Entrar'}
+              </button>
+            </form>
+          </div>
+        </section>
       </div>
     </div>
   )
