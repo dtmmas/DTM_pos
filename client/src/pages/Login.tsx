@@ -2,11 +2,13 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/auth'
 import { useConfigStore } from '../store/config'
+import { formatCompanyName } from '../utils/text'
 
 export default function Login() {
   const navigate = useNavigate()
   const { login } = useAuthStore()
   const config = useConfigStore(s => s.config)
+  const companyName = formatCompanyName(config?.name)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -28,7 +30,7 @@ export default function Login() {
       <div className="login-layout">
         <section className="login-panel login-panel--brand">
           <div className="login-badge">Sistema POS</div>
-          <h1 className="login-title">{config?.name ?? 'DTMPos'}</h1>
+          <h1 className="login-title">{companyName}</h1>
           <p className="login-description">
             Accede a tu panel de ventas, inventario y caja desde una pantalla mas limpia y enfocada.
           </p>
@@ -46,10 +48,14 @@ export default function Login() {
 
         <section className="login-panel login-panel--form">
           <div className="login-card-modern">
-            {config?.logoUrl && <img src={config.logoUrl} alt="logo" className="login-logo" />}
-            <div className="login-copy">
-              <p className="login-eyebrow">Bienvenido</p>
-              <h2>Iniciar sesión</h2>
+            <div className="login-card-header">
+              {config?.logoUrl && <img src={config.logoUrl} alt="logo" className="login-logo" />}
+              <div className="login-copy">
+                <p className="login-eyebrow">Bienvenido</p>
+                <h3 className="login-card-title">Iniciar sesión</h3>
+              </div>
+            </div>
+            <div className="login-copy login-copy--supporting">
               <p>Ingresa tus credenciales para continuar.</p>
             </div>
 

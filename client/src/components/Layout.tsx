@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useAuthStore } from '../store/auth'
 import { useConfigStore } from '../store/config'
 import { useThemeStore } from '../store/theme'
+import { formatCompanyName } from '../utils/text'
 
 export default function Layout() {
   const location = useLocation()
@@ -10,6 +11,7 @@ export default function Layout() {
   const { user, logout, hasPermission } = useAuthStore()
   const config = useConfigStore(s => s.config)
   const { mode, setMode } = useThemeStore()
+  const companyName = formatCompanyName(config?.name)
   const posWindowRef = useRef<Window | null>(null)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
@@ -52,7 +54,7 @@ export default function Layout() {
         <div className="brand" onClick={() => navigate('/') }>
           {config?.logoUrl && <img src={config.logoUrl} alt="logo" />}
           <div>
-            <strong>{config?.name ?? 'DTMPos'}</strong>
+            <strong>{companyName}</strong>
             <small>{config?.currency ?? 'USD'}</small>
           </div>
         </div>

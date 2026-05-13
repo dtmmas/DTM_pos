@@ -5,6 +5,7 @@ import { useConfigStore } from '../store/config'
 import { useAuthStore } from '../store/auth'
 import { formatDate, formatDateTime } from '../utils/date'
 import jsPDF from 'jspdf'
+import { formatCompanyName } from '../utils/text'
 
 interface Sale {
   id: number
@@ -158,6 +159,7 @@ export default function Sales() {
   const iframeRef = useRef<HTMLIFrameElement>(null)
 
   const config = useConfigStore(s => s.config)
+  const companyName = formatCompanyName(config?.name)
   const user = useAuthStore(s => s.user)
   const isAdmin = user?.role === 'ADMIN'
 
@@ -322,7 +324,7 @@ export default function Sales() {
      })
  
      doc.setFontSize(10)
-     doc.text(config?.name || 'DTMPos', 40, 5, { align: 'center' })
+     doc.text(companyName, 40, 5, { align: 'center' })
      doc.setFontSize(8)
      doc.text(`Fecha: ${formatDateTime(sale.created_at)}`, 5, 15)
      doc.text(`Venta #${sale.id}`, 5, 20)

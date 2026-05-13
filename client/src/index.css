@@ -263,6 +263,7 @@ input[type="file"]:focus {
 
 .login-card-modern {
   width: 100%;
+  max-width: 420px;
   padding: 30px;
   border-radius: 28px;
   border: 1px solid color-mix(in srgb, var(--border) 92%, transparent);
@@ -271,30 +272,48 @@ input[type="file"]:focus {
   backdrop-filter: blur(16px);
 }
 
+.login-card-header {
+  display: grid;
+  justify-items: center;
+  text-align: center;
+  gap: 10px;
+}
+
 .login-logo {
-  width: 72px;
-  height: 72px;
+  width: 84px;
+  height: 84px;
   object-fit: contain;
-  border-radius: 18px;
-  margin-bottom: 18px;
+  border-radius: 22px;
   background: color-mix(in srgb, var(--surface) 84%, transparent);
   border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
-  padding: 10px;
+  padding: 12px;
 }
 
 .login-copy {
-  margin-bottom: 24px;
+  margin-bottom: 20px;
+  text-align: center;
 }
 
-.login-copy h2 {
-  margin: 0 0 8px;
-  font-size: 1.9rem;
+.login-copy h2,
+.login-copy h3 {
+  margin: 0;
 }
 
 .login-copy p {
   margin: 0;
   color: var(--muted);
   line-height: 1.6;
+}
+
+.login-card-title {
+  margin-top: 8px;
+  font-size: 1.16rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.login-copy--supporting {
+  margin-bottom: 24px;
 }
 
 .login-eyebrow {
@@ -373,34 +392,79 @@ input[type="file"]:focus {
   cursor: wait;
 }
 
+@media (max-width: 1024px) {
+  .login-shell {
+    padding: 20px;
+  }
+
+  .login-layout {
+    grid-template-columns: minmax(280px, 1fr) minmax(320px, 400px);
+    gap: 24px;
+  }
+
+  .login-title {
+    font-size: clamp(2.5rem, 5vw, 3.6rem);
+  }
+}
+
 @media (max-width: 900px) {
   .login-layout {
     grid-template-columns: 1fr;
-    gap: 20px;
+    gap: 18px;
+    min-height: auto;
+    padding: 20px 0;
   }
 
   .login-panel--brand {
     text-align: center;
     justify-items: center;
+    gap: 14px;
   }
 
   .login-highlights {
     justify-content: center;
   }
+
+  .login-panel--form {
+    width: 100%;
+  }
+
+  .login-card-modern {
+    max-width: 560px;
+  }
 }
 
 @media (max-width: 640px) {
   .login-shell {
-    padding: 16px;
+    padding: 14px;
   }
 
   .login-layout {
-    min-height: calc(100vh - 32px);
+    min-height: calc(100vh - 28px);
+    gap: 14px;
+    align-items: start;
   }
 
   .login-card-modern {
-    padding: 22px;
+    max-width: 100%;
+    padding: 20px 18px;
     border-radius: 22px;
+  }
+
+  .login-logo {
+    width: 76px;
+    height: 76px;
+    border-radius: 20px;
+    padding: 10px;
+  }
+
+  .login-card-title {
+    font-size: 1rem;
+  }
+
+  .login-description {
+    font-size: 0.95rem;
+    line-height: 1.6;
   }
 
   .login-highlights {
@@ -411,6 +475,31 @@ input[type="file"]:focus {
 
   .login-highlight {
     min-width: 0;
+  }
+
+  .login-field input,
+  .login-submit {
+    min-height: 46px;
+  }
+}
+
+@media (max-width: 420px) {
+  .login-shell {
+    padding: 12px;
+  }
+
+  .login-card-modern {
+    padding: 18px 16px;
+    border-radius: 20px;
+  }
+
+  .login-title {
+    font-size: 2.1rem;
+  }
+
+  .login-description,
+  .login-copy--supporting p {
+    font-size: 0.92rem;
   }
 }
 
