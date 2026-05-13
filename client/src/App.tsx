@@ -33,10 +33,15 @@ import InventoryReport from './pages/InventoryReport'
 import Transfers from './pages/Transfers'
 import CashRegister from './pages/CashRegister'
 import CashHistory from './pages/CashHistory'
+import { formatCompanyName } from './utils/text'
 
 export default function App() {
   const fetchConfig = useConfigStore(s => s.fetchConfig)
+  const config = useConfigStore(s => s.config)
   useEffect(() => { fetchConfig() }, [fetchConfig])
+  useEffect(() => {
+    document.title = formatCompanyName(config?.name)
+  }, [config?.name])
 
   return (
     <Routes>
