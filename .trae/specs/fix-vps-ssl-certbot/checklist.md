@@ -1,0 +1,5 @@
+- [x] La spec define el cambio de `certbot --nginx` a `certbot certonly --webroot`
+- [x] La validacion previa con `/.well-known/acme-challenge/test.txt` ya fue confirmada por el usuario
+- [x] La distribucion de puertos `4003`, `4004` y `4005` ya fue confirmada por el usuario
+- [x] La spec define bloques Nginx HTTP/HTTPS para ambos dominios
+- [x] Las tareas restantes quedan expresadas como guia exacta para emision de certificados, carga manual en Nginx y validacion final por un operador con acceso al VPS

@@ -1,0 +1,304 @@
+TUTORIAL VPS - DOS CLIENTES CON LA MISMA APP
+
+Objetivo
+- Montar 2 clientes con la misma app, pero en instalaciones separadas en el VPS.
+- Cliente 1: Farmacia La Esperanza
+- Cliente 2: Farmacia Mis Angelitos
+
+Datos finales
+- Cliente 1
+  - Carpeta: /var/www/farmesperanza
+  - Base de datos: farmesperanza
+  - Dominio: farmesperanza.com
+  - Backend: 127.0.0.1:4003
+  - PM2: farmesperanza-api
+- Cliente 2
+  - Carpeta: /var/www/farmangelitos
+  - Base de datos: farmangelitos
+  - Dominio: farmaciamisangelitos.com
+  - Backend: 127.0.0.1:4004
+  - PM2: farmangelitos-api
+
+PASO 1: Instalar base del VPS
+Ejecuta esto una sola vez:
+
+apt update
+apt install -y nginx mysql-server unzip
+curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+apt install -y nodejs
+npm install -g pm2
+
+node -v
+npm -v
+mysql --version
+nginx -v
+pm2 -v
+
+PASO 2: Crear bases de datos
+Entra a MySQL:
+
+sudo mysql
+
+Ejecuta:
+
+CREATE DATABASE IF NOT EXISTS farmesperanza CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE DATABASE IF NOT EXISTS farmangelitos CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+CREATE USER IF NOT EXISTS 'dtm'@'localhost' IDENTIFIED BY 'TU_PASSWORD_REAL';
+GRANT ALL PRIVILEGES ON farmesperanza.* TO 'dtm'@'localhost';
+GRANT ALL PRIVILEGES ON farmangelitos.* TO 'dtm'@'localhost';
+FLUSH PRIVILEGES;
+EXIT;
+
+PASO 3: Clonar ambos proyectos
+Usa el mismo repo en dos carpetas distintas:
+
+cd /var/www
+git clone https://github.com/dtmmas/DTM_pos.git farmesperanza
+git clone https://github.com/dtmmas/DTM_pos.git farmangelitos
+
+PASO 4: Configurar cliente 1
+
+cd /var/www/farmesperanza/server
+cp .env.example .env
+nano .env
+
+Pega esto:
+
+PORT=4003
+HOST=0.0.0.0
+NODE_ENV=production
+TRUST_PROXY=1
+CORS_ORIGIN=https://farmesperanza.com,https://www.farmesperanza.com
+
+JWT_SECRET=CAMBIA_ESTE_SECRETO_1
+DEFAULT_ADMIN_EMAIL=admin@farmesperanza.com
+DEFAULT_ADMIN_PASSWORD=123456
+
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_USER=dtm
+DB_PASSWORD=TU_PASSWORD_REAL
+DB_NAME=farmesperanza
+
+PASO 5: Configurar cliente 2
+
+cd /var/www/farmangelitos/server
+cp .env.example .env
+nano .env
+
+Pega esto:
+
+PORT=4004
+HOST=0.0.0.0
+NODE_ENV=production
+TRUST_PROXY=1
+CORS_ORIGIN=https://farmaciamisangelitos.com,https://www.farmaciamisangelitos.com
+
+JWT_SECRET=CAMBIA_ESTE_SECRETO_2
+DEFAULT_ADMIN_EMAIL=admin@farmaciamisangelitos.com
+DEFAULT_ADMIN_PASSWORD=123456
+
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_USER=dtm
+DB_PASSWORD=TU_PASSWORD_REAL
+DB_NAME=farmangelitos
+
+PASO 6: Instalar dependencias y bootstrap cliente 1
+
+cd /var/www/farmesperanza/client
+npm install
+npm run build
+
+cd /var/www/farmesperanza/server
+npm install
+npm run bootstrap:prod
+
+PASO 7: Instalar dependencias y bootstrap cliente 2
+
+cd /var/www/farmangelitos/client
+npm install
+npm run build
+
+cd /var/www/farmangelitos/server
+npm install
+npm run bootstrap:prod
+
+PASO 8: Levantar PM2 cliente 1
+
+cd /var/www/farmesperanza
+pm2 start server/server.js --name farmesperanza-api
+pm2 save
+
+PASO 9: Levantar PM2 cliente 2
+
+cd /var/www/farmangelitos
+pm2 start server/server.js --name farmangelitos-api
+pm2 save
+
+PASO 10: Verificar APIs
+
+curl http://127.0.0.1:4003/api/health
+curl http://127.0.0.1:4004/api/health
+pm2 list
+
+PASO 11: Configurar Nginx cliente 1
+Crea este archivo:
+
+nano /etc/nginx/sites-available/farmesperanza
+
+Pega esto:
+
+server {
+  listen 80;
+  server_name farmesperanza.com www.farmesperanza.com;
+
+  root /var/www/farmesperanza/client/dist;
+  index index.html;
+
+  client_max_body_size 25M;
+
+  location / {
+    try_files $uri $uri/ /index.html;
+  }
+
+  location /api/ {
+    proxy_pass http://127.0.0.1:4003/api/;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+  }
+
+  location /uploads/ {
+    proxy_pass http://127.0.0.1:4003/uploads/;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+  }
+}
+
+PASO 12: Configurar Nginx cliente 2
+Crea este archivo:
+
+nano /etc/nginx/sites-available/farmangelitos
+
+Pega esto:
+
+server {
+  listen 80;
+  server_name farmaciamisangelitos.com www.farmaciamisangelitos.com;
+
+  root /var/www/farmangelitos/client/dist;
+  index index.html;
+
+  client_max_body_size 25M;
+
+  location / {
+    try_files $uri $uri/ /index.html;
+  }
+
+  location /api/ {
+    proxy_pass http://127.0.0.1:4004/api/;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+  }
+
+  location /uploads/ {
+    proxy_pass http://127.0.0.1:4004/uploads/;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+  }
+}
+
+PASO 13: Activar Nginx
+
+ln -s /etc/nginx/sites-available/farmesperanza /etc/nginx/sites-enabled/farmesperanza
+ln -s /etc/nginx/sites-available/farmangelitos /etc/nginx/sites-enabled/farmangelitos
+
+nginx -t
+systemctl reload nginx
+
+PASO 14: Instalar SSL
+
+apt install -y certbot python3-certbot-nginx
+certbot --nginx -d farmesperanza.com -d www.farmesperanza.com
+certbot --nginx -d farmaciamisangelitos.com -d www.farmaciamisangelitos.com
+
+PASO 15: Verificacion final
+
+curl http://127.0.0.1:4003/api/health
+curl http://127.0.0.1:4004/api/health
+pm2 list
+nginx -t
+
+Luego abre:
+- https://farmesperanza.com
+- https://farmaciamisangelitos.com
+
+Admins iniciales
+- Cliente 1
+  - Email: admin@farmesperanza.com
+  - Password: 123456
+- Cliente 2
+  - Email: admin@farmaciamisangelitos.com
+  - Password: 123456
+
+Actualizacion futura cliente 1
+
+cd /var/www/farmesperanza
+git pull origin main
+
+cd client
+npm install
+npm run build
+
+cd ../server
+npm install
+npm run bootstrap:prod
+
+cd ..
+pm2 restart farmesperanza-api --update-env
+pm2 save
+
+curl http://127.0.0.1:4003/api/health
+
+Actualizacion futura cliente 2
+
+cd /var/www/farmangelitos
+git pull origin main
+
+cd client
+npm install
+npm run build
+
+cd ../server
+npm install
+npm run bootstrap:prod
+
+cd ..
+pm2 restart farmangelitos-api --update-env
+pm2 save
+
+curl http://127.0.0.1:4004/api/health
+
+Archivos que no debes mezclar
+- server/.env de cada cliente
+- server/uploads de cada cliente
+- base de datos de cada cliente
+- proceso PM2 de cada cliente
+
+Recomendacion
+- Haz primero completo farmesperanza.
+- Cuando ese quede funcionando, repites exactamente el mismo proceso con farmangelitos.
+- Asi detectas errores mas facil y no mezclas dos instalaciones al mismo tiempo.
