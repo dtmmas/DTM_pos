@@ -1,7 +1,7 @@
 module.exports = {
   apps: [
     {
-      name: 'dtmpos-api',
+      name: 'tiendadtmpos-api',
       cwd: './server',
       script: 'server.js',
       instances: 1,

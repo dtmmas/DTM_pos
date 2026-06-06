@@ -1381,24 +1381,6 @@ export default function Products() {
               </button>
               
               <button 
-                onClick={() => startCreateWithType('MEDICINAL')}
-                style={{ 
-                  padding: '12px 16px', 
-                  background: '#1e293b', 
-                  border: '1px solid var(--border)',
-                  borderRadius: 8, 
-                  color: 'white',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s'
-                }}
-                onMouseOver={(e) => e.currentTarget.style.background = 'var(--surface-hover)'}
-                onMouseOut={(e) => e.currentTarget.style.background = '#1e293b'}
-              >
-                <div style={{ fontWeight: 'bold', marginBottom: 4 }}>MEDICINAL</div>
-                <div style={{ fontSize: '0.9em', opacity: 0.8 }}>Medicamentos con lotes y fechas de vencimiento</div>
-              </button>
-              
-              <button 
                 onClick={() => startCreateWithType('IMEI')}
                 style={{ 
                   padding: '12px 16px', 

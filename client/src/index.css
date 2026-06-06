@@ -104,7 +104,7 @@ label {
 
 /* Primary button for main actions like "Nuevo" */
 .primary-btn {
-  background: #16a34a; /* green-600 */
+  background: #16a34a;
   color: #fff;
 }
 .primary-btn:hover { background: #15803d; }
@@ -196,6 +196,8 @@ input[type="file"]:focus {
   display: grid;
   gap: 18px;
   align-content: center;
+  justify-items: start;
+  text-align: left;
 }
 
 .login-badge {
@@ -231,6 +233,7 @@ input[type="file"]:focus {
   display: flex;
   gap: 14px;
   flex-wrap: wrap;
+  justify-content: flex-start;
 }
 
 .login-highlight {
@@ -259,6 +262,7 @@ input[type="file"]:focus {
 .login-panel--form {
   display: flex;
   justify-content: center;
+  align-items: center;
 }
 
 .login-card-modern {
@@ -270,6 +274,7 @@ input[type="file"]:focus {
   background: color-mix(in srgb, var(--card) 90%, transparent);
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.16);
   backdrop-filter: blur(16px);
+  text-align: center;
 }
 
 .login-card-header {
@@ -277,6 +282,16 @@ input[type="file"]:focus {
   justify-items: center;
   text-align: center;
   gap: 10px;
+}
+
+.login-logo-wrap {
+  width: 84px;
+  height: 84px;
+  display: grid;
+  place-items: center;
+  border-radius: 22px;
+  background: color-mix(in srgb, var(--surface) 84%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
 }
 
 .login-logo {
@@ -292,6 +307,7 @@ input[type="file"]:focus {
 .login-copy {
   margin-bottom: 20px;
   text-align: center;
+  width: 100%;
 }
 
 .login-copy h2,
@@ -328,11 +344,13 @@ input[type="file"]:focus {
 .login-form {
   display: grid;
   gap: 18px;
+  max-width: 100%;
 }
 
 .login-field {
   display: grid;
   gap: 8px;
+  text-align: left;
 }
 
 .login-field label {
@@ -449,6 +467,12 @@ input[type="file"]:focus {
     max-width: 100%;
     padding: 20px 18px;
     border-radius: 22px;
+  }
+
+  .login-logo-wrap {
+    width: 76px;
+    height: 76px;
+    border-radius: 20px;
   }
 
   .login-logo {

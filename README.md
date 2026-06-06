@@ -34,8 +34,8 @@ Archivos de apoyo incluidos:
 ### 1. Clonar el repositorio
 
 ```bash
-git clone https://github.com/dtmmas/DTM_pos.git
-cd DTM_pos
+git clone https://github.com/dtmmas/tiendadtmpos.git
+cd tiendadtmpos
 ```
 
 ### 2. Instalar dependencias
@@ -148,26 +148,26 @@ sudo npm install -g pm2
 
 ```bash
 cd /var/www
-sudo git clone https://github.com/dtmmas/DTM_pos.git dtmpos
-sudo chown -R $USER:$USER /var/www/dtmpos
-cd /var/www/dtmpos
+sudo git clone https://github.com/dtmmas/tiendadtmpos.git tiendadtmpos
+sudo chown -R $USER:$USER /var/www/tiendadtmpos
+cd /var/www/tiendadtmpos
 ```
 
 ### 3. Instalar dependencias y compilar frontend
 
 ```bash
-cd /var/www/dtmpos/client
+cd /var/www/tiendadtmpos/client
 npm install
 npm run build
 
-cd /var/www/dtmpos/server
+cd /var/www/tiendadtmpos/server
 npm install
 ```
 
 ### 4. Configurar backend
 
 ```bash
-cd /var/www/dtmpos/server
+cd /var/www/tiendadtmpos/server
 cp .env.example .env
 ```
 
@@ -180,7 +180,7 @@ Edita `server/.env` con tus credenciales reales de MySQL y tu dominio final.
 - `bootstrap:prod` ya no siembra catálogos de negocio: `unidades`, `marcas`, `proveedores`, `departamentos`, `estanterías` ni `almacenes`.
 
 ```bash
-cd /var/www/dtmpos/server
+cd /var/www/tiendadtmpos/server
 npm run bootstrap:prod
 ```
 
@@ -195,7 +195,7 @@ npm run bootstrap:prod
 ### 6. Levantar API con PM2
 
 ```bash
-cd /var/www/dtmpos
+cd /var/www/tiendadtmpos
 pm2 start server/ecosystem.config.cjs
 pm2 save
 pm2 startup
@@ -211,13 +211,13 @@ curl http://127.0.0.1:4003/api/health
 
 1. Copia `deploy/hostinger/nginx.conf.example`
 2. Reemplaza `your-domain.com` por tu dominio
-3. Ajusta `root /var/www/dtmpos/client/dist;`
+3. Ajusta `root /var/www/tiendadtmpos/client/dist;`
 
 Ejemplo:
 
 ```bash
-sudo nano /etc/nginx/sites-available/dtmpos
-sudo ln -s /etc/nginx/sites-available/dtmpos /etc/nginx/sites-enabled/dtmpos
+sudo nano /etc/nginx/sites-available/tiendadtmpos
+sudo ln -s /etc/nginx/sites-available/tiendadtmpos /etc/nginx/sites-enabled/tiendadtmpos
 sudo nginx -t
 sudo systemctl reload nginx
 ```
@@ -232,7 +232,7 @@ sudo certbot --nginx -d tu-dominio.com -d www.tu-dominio.com
 ### 9. Actualizar proyecto en produccion
 
 ```bash
-cd /var/www/dtmpos
+cd /var/www/tiendadtmpos
 git pull origin main
 
 cd client
@@ -241,7 +241,7 @@ npm run build
 
 cd ../server
 npm install
-pm2 restart dtmpos-api
+pm2 restart tiendadtmpos-api
 ```
 
 ### 10. Directorios persistentes
@@ -312,5 +312,5 @@ Notas:
 
 ## Repositorio
 
-- GitHub: [https://github.com/dtmmas/DTM_pos](https://github.com/dtmmas/DTM_pos)
-- Tutorial VPS paso a paso: [HOSTINGER_VPS_TUTORIAL.md](file:///c:/Users/HP/Desktop/PRoyectos%20generados%20con%20ia/proyecto%20trae%202/DTMPos/HOSTINGER_VPS_TUTORIAL.md)
+- GitHub: [https://github.com/dtmmas/tiendadtmpos](https://github.com/dtmmas/tiendadtmpos)
+- Tutorial VPS paso a paso: [HOSTINGER_VPS_TUTORIAL.md](file:///c:/Users/HP/Desktop/PRoyectos%20generados%20con%20ia/proyecto%20trae%202/TiendaDTM_2026/HOSTINGER_VPS_TUTORIAL.md)

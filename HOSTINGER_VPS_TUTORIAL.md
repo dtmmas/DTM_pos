@@ -5,9 +5,9 @@ Guia completa para desplegar `DTMPos` en un VPS Hostinger desde cero, sin afecta
 ## Datos de este despliegue
 
 - Dominio: `cesperanza.sistemasdtm.com`
-- Carpeta del proyecto: `/var/www/dtmpos`
+- Carpeta del proyecto: `/var/www/tiendadtmpos`
 - Backend Node.js: `127.0.0.1:4003`
-- Proceso PM2: `dtmpos-api`
+- Proceso PM2: `tiendadtmpos-api`
 - App existente en el VPS: `tickets-dtm`
 
 ## Objetivo
@@ -62,24 +62,24 @@ pm2 -v
 ```bash
 mkdir -p /var/www
 cd /var/www
-git clone https://github.com/dtmmas/DTM_pos.git dtmpos
-cd /var/www/dtmpos
+git clone https://github.com/dtmmas/tiendadtmpos.git tiendadtmpos
+cd /var/www/tiendadtmpos
 ```
 
 Si ya existe el proyecto:
 
 ```bash
-cd /var/www/dtmpos
+cd /var/www/tiendadtmpos
 git pull origin main
 ```
 
 ## 5. Instalar dependencias del proyecto
 
 ```bash
-cd /var/www/dtmpos/client
+cd /var/www/tiendadtmpos/client
 npm install
 
-cd /var/www/dtmpos/server
+cd /var/www/tiendadtmpos/server
 npm install
 ```
 
@@ -110,7 +110,7 @@ mysql -u dtm -p -D dtmpos -e "SHOW TABLES;"
 ## 7. Configurar variables de entorno
 
 ```bash
-cd /var/www/dtmpos/server
+cd /var/www/tiendadtmpos/server
 cp .env.example .env
 nano .env
 ```
@@ -145,7 +145,7 @@ Este paso deja lista la base para produccion. Crea y normaliza tablas, columnas,
 No siembra catalogos de negocio por defecto: `unidades`, `marcas`, `proveedores`, `departamentos`, `estanterías` ni `almacenes`.
 
 ```bash
-cd /var/www/dtmpos/server
+cd /var/www/tiendadtmpos/server
 npm run bootstrap:prod
 ```
 
@@ -159,7 +159,7 @@ Admin user: admin@local / admin123
 ## 9. Compilar frontend
 
 ```bash
-cd /var/www/dtmpos/client
+cd /var/www/tiendadtmpos/client
 npm run build
 ```
 
@@ -168,7 +168,7 @@ npm run build
 Primer arranque:
 
 ```bash
-cd /var/www/dtmpos
+cd /var/www/tiendadtmpos
 pm2 start server/ecosystem.config.cjs
 pm2 save
 pm2 startup
@@ -177,8 +177,8 @@ pm2 startup
 Si ya existe el proceso:
 
 ```bash
-cd /var/www/dtmpos
-pm2 restart dtmpos-api --update-env
+cd /var/www/tiendadtmpos
+pm2 restart tiendadtmpos-api --update-env
 pm2 save
 ```
 
@@ -190,7 +190,7 @@ Dar unos segundos despues del restart:
 sleep 3
 curl http://localhost:4003/api/health
 pm2 list
-pm2 logs dtmpos-api --lines 50
+pm2 logs tiendadtmpos-api --lines 50
 ```
 
 Respuesta esperada:
@@ -204,7 +204,7 @@ Respuesta esperada:
 Crear el archivo del sitio:
 
 ```bash
-nano /etc/nginx/sites-available/dtmpos
+nano /etc/nginx/sites-available/tiendadtmpos
 ```
 
 Pegar esta configuracion:
@@ -214,7 +214,7 @@ server {
   listen 80;
   server_name cesperanza.sistemasdtm.com;
 
-  root /var/www/dtmpos/client/dist;
+  root /var/www/tiendadtmpos/client/dist;
   index index.html;
 
   client_max_body_size 25M;
@@ -246,7 +246,7 @@ server {
 Activar el sitio:
 
 ```bash
-ln -s /etc/nginx/sites-available/dtmpos /etc/nginx/sites-enabled/dtmpos
+ln -s /etc/nginx/sites-available/tiendadtmpos /etc/nginx/sites-enabled/tiendadtmpos
 nginx -t
 systemctl reload nginx
 ```
@@ -284,19 +284,19 @@ Comprobar:
 ## 16. Actualizar el sistema en el futuro
 
 ```bash
-cd /var/www/dtmpos
+cd /var/www/tiendadtmpos
 git pull origin main
 
-cd /var/www/dtmpos/server
+cd /var/www/tiendadtmpos/server
 npm install
 npm run bootstrap:prod
 
-cd /var/www/dtmpos/client
+cd /var/www/tiendadtmpos/client
 npm install
 npm run build
 
-cd /var/www/dtmpos
-pm2 restart dtmpos-api --update-env
+cd /var/www/tiendadtmpos
+pm2 restart tiendadtmpos-api --update-env
 pm2 save
 
 sleep 3
@@ -314,7 +314,7 @@ pm2 list
 Ver logs:
 
 ```bash
-pm2 logs dtmpos-api --lines 100
+pm2 logs tiendadtmpos-api --lines 100
 ```
 
 Ver si el puerto escucha:
@@ -374,7 +374,7 @@ Solucion:
 - reiniciar con:
 
 ```bash
-pm2 restart dtmpos-api --update-env
+pm2 restart tiendadtmpos-api --update-env
 ```
 
 ### Error: `Unknown database 'dtmpos'`
@@ -400,7 +400,7 @@ Solucion:
 
 ```bash
 git pull origin main
-cd /var/www/dtmpos/server
+cd /var/www/tiendadtmpos/server
 npm run bootstrap:prod
 ```
 
@@ -415,9 +415,9 @@ Solucion:
 - actualizar repo y correr otra vez:
 
 ```bash
-cd /var/www/dtmpos
+cd /var/www/tiendadtmpos
 git pull origin main
-cd /var/www/dtmpos/server
+cd /var/www/tiendadtmpos/server
 npm run bootstrap:prod
 ```
 
@@ -430,36 +430,36 @@ Causa:
 Solucion:
 
 ```bash
-pm2 restart dtmpos-api --update-env
+pm2 restart tiendadtmpos-api --update-env
 sleep 3
 curl http://localhost:4003/api/health
 ```
 
 ## 19. Archivos importantes del proyecto
 
-- [README.md](file:///c:/Users/HP/Desktop/PRoyectos%20generados%20con%20ia/proyecto%20trae%202/DTMPos/README.md)
-- [bootstrap-production.js](file:///c:/Users/HP/Desktop/PRoyectos%20generados%20con%20ia/proyecto%20trae%202/DTMPos/server/bootstrap-production.js)
-- [ecosystem.config.cjs](file:///c:/Users/HP/Desktop/PRoyectos%20generados%20con%20ia/proyecto%20trae%202/DTMPos/server/ecosystem.config.cjs)
-- [server.js](file:///c:/Users/HP/Desktop/PRoyectos%20generados%20con%20ia/proyecto%20trae%202/DTMPos/server/server.js)
+- [README.md](file:///c:/Users/HP/Desktop/PRoyectos%20generados%20con%20ia/proyecto%20trae%202/TiendaDTM_2026/README.md)
+- [bootstrap-production.js](file:///c:/Users/HP/Desktop/PRoyectos%20generados%20con%20ia/proyecto%20trae%202/TiendaDTM_2026/server/bootstrap-production.js)
+- [ecosystem.config.cjs](file:///c:/Users/HP/Desktop/PRoyectos%20generados%20con%20ia/proyecto%20trae%202/TiendaDTM_2026/server/ecosystem.config.cjs)
+- [server.js](file:///c:/Users/HP/Desktop/PRoyectos%20generados%20con%20ia/proyecto%20trae%202/TiendaDTM_2026/server/server.js)
 
 ## 20. Resumen corto
 
 Comando base para dejarlo listo:
 
 ```bash
-cd /var/www/dtmpos
+cd /var/www/tiendadtmpos
 git pull origin main
 
-cd /var/www/dtmpos/server
+cd /var/www/tiendadtmpos/server
 npm install
 npm run bootstrap:prod
 
-cd /var/www/dtmpos/client
+cd /var/www/tiendadtmpos/client
 npm install
 npm run build
 
-cd /var/www/dtmpos
-pm2 restart dtmpos-api --update-env || pm2 start server/ecosystem.config.cjs
+cd /var/www/tiendadtmpos
+pm2 restart tiendadtmpos-api --update-env || pm2 start server/ecosystem.config.cjs
 pm2 save
 
 sleep 3

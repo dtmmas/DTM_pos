@@ -49,7 +49,11 @@ export default function Login() {
         <section className="login-panel login-panel--form">
           <div className="login-card-modern">
             <div className="login-card-header">
-              {config?.logoUrl && <img src={config.logoUrl} alt="logo" className="login-logo" />}
+              {config?.logoUrl && (
+                <div className="login-logo-wrap">
+                  <img src={config.logoUrl} alt="logo" className="login-logo" />
+                </div>
+              )}
               <div className="login-copy">
                 <p className="login-eyebrow">Bienvenido</p>
                 <h3 className="login-card-title">Iniciar sesión</h3>
