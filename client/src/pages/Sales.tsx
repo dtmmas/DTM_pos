@@ -310,6 +310,16 @@ export default function Sales() {
 
   const formatMoney = (value?: number) => `${config?.currency ?? '$'} ${Number(value || 0).toFixed(2)}`
 
+  const downloadTicketPdf = (blobUrl: string, saleId: number) => {
+    const link = document.createElement('a')
+    link.href = blobUrl
+    link.download = `ticket-venta-${saleId}.pdf`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.setTimeout(() => URL.revokeObjectURL(blobUrl), 1000)
+  }
+
   const generateTicket = (sale: SaleDetail) => {
      // Calcular altura dinámica
      const headerHeight = 40
@@ -368,16 +378,7 @@ export default function Sales() {
      const blob = doc.output('blob')
      const blobUrl = URL.createObjectURL(blob)
      
-     if (iframeRef.current) {
-       iframeRef.current.src = blobUrl
-       iframeRef.current.onload = () => {
-         if (iframeRef.current?.contentWindow) {
-           iframeRef.current.contentWindow.print()
-         }
-       }
-     } else {
-       window.open(blobUrl, '_blank')
-     }
+    downloadTicketPdf(blobUrl, sale.id)
    }
 
   const totalPages = Math.ceil(pagination.total / pagination.limit)

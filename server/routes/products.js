@@ -1,6 +1,6 @@
 import express from 'express'
 import multer from 'multer'
-import { authMiddleware, roleMiddleware } from '../auth.js'
+import { authMiddleware, canAccessWarehouse, getUserWarehouseId, isAdminUser, roleMiddleware } from '../auth.js'
 import { getPool } from '../db.js'
 import { registerMovement } from '../services/inventory.js'
 import { uploadsDir } from '../paths.js'
@@ -58,22 +58,47 @@ function sumQuantity(arr, quantityKey = 'quantity') {
   return arr.reduce((acc, v) => acc + Number(v?.[quantityKey] || 0), 0)
 }
 
+function resolveWarehouseScope(req, requestedWarehouseId) {
+  const userWarehouseId = getUserWarehouseId(req.user)
+  const isAdmin = isAdminUser(req.user)
+  const targetWarehouseId = Number(requestedWarehouseId || 0)
+
+  if (isAdmin) {
+    return { warehouseId: targetWarehouseId || null, denied: false }
+  }
+  if (!userWarehouseId) {
+    return { warehouseId: null, denied: true }
+  }
+  if (!targetWarehouseId) {
+    return { warehouseId: userWarehouseId, denied: false }
+  }
+  if (!canAccessWarehouse(req.user, targetWarehouseId)) {
+    return { warehouseId: null, denied: true }
+  }
+  return { warehouseId: targetWarehouseId, denied: false }
+}
+
 router.get('/', authMiddleware, async (req, res) => {
   try {
     const { warehouseId } = req.query
     const pool = await getPool()
+    const scope = resolveWarehouseScope(req, warehouseId)
+
+    if (scope.denied) {
+      return res.status(403).json({ error: 'No tienes acceso a esa tienda' })
+    }
     
     // Si se especifica warehouseId, calculamos stock local y 'otros'
     // Si no, stock es global y other_stock es 0
     let selectStock = `COALESCE(SUM(pws.quantity), 0) as stock, 0 as other_stock`
     const params = []
 
-    if (warehouseId) {
+    if (scope.warehouseId) {
       selectStock = `
         COALESCE(SUM(CASE WHEN pws.warehouse_id = ? THEN pws.quantity ELSE 0 END), 0) as stock,
         COALESCE(SUM(CASE WHEN pws.warehouse_id != ? THEN pws.quantity ELSE 0 END), 0) as other_stock
       `
-      params.push(warehouseId, warehouseId)
+      params.push(scope.warehouseId, scope.warehouseId)
     }
 
     let query = `
@@ -87,7 +112,6 @@ router.get('/', authMiddleware, async (req, res) => {
     // No filtramos en el JOIN para poder calcular 'other_stock'
     
     query += ` GROUP BY p.id ORDER BY p.id DESC`
-
     const [rows] = await pool.query(query, params)
 
     const items = rows.map(r => ({
@@ -127,16 +151,21 @@ router.get('/:id', authMiddleware, async (req, res) => {
     const id = Number(req.params.id)
     const { warehouseId } = req.query
     const pool = await getPool()
+    const scope = resolveWarehouseScope(req, warehouseId)
+
+    if (scope.denied) {
+      return res.status(403).json({ error: 'No tienes acceso a esa tienda' })
+    }
     
     let selectStock = `COALESCE(SUM(pws.quantity), 0) as stock, 0 as other_stock`
     const params = []
 
-    if (warehouseId) {
+    if (scope.warehouseId) {
       selectStock = `
         COALESCE(SUM(CASE WHEN pws.warehouse_id = ? THEN pws.quantity ELSE 0 END), 0) as stock,
         COALESCE(SUM(CASE WHEN pws.warehouse_id != ? THEN pws.quantity ELSE 0 END), 0) as other_stock
       `
-      params.push(warehouseId, warehouseId)
+      params.push(scope.warehouseId, scope.warehouseId)
     }
     
     params.push(id)
@@ -164,9 +193,9 @@ router.get('/:id', authMiddleware, async (req, res) => {
     if (type === 'MEDICINAL') {
       let query = 'SELECT batch_no, expiry_date, quantity FROM product_batches WHERE product_id = ?'
       const qParams = [id]
-      if (warehouseId) {
+      if (scope.warehouseId) {
         query += ' AND warehouse_id = ?'
-        qParams.push(warehouseId)
+        qParams.push(scope.warehouseId)
       }
       query += ' ORDER BY expiry_date ASC'
       const [batchRows] = await pool.query(query, qParams)
@@ -178,9 +207,9 @@ router.get('/:id', authMiddleware, async (req, res) => {
     } else if (type === 'IMEI') {
       let query = 'SELECT imei FROM product_imeis WHERE product_id = ?'
       const qParams = [id]
-      if (warehouseId) {
+      if (scope.warehouseId) {
         query += ' AND warehouse_id = ?'
-        qParams.push(warehouseId)
+        qParams.push(scope.warehouseId)
       }
       query += ' ORDER BY id ASC'
       const [imeiRows] = await pool.query(query, qParams)
@@ -188,9 +217,9 @@ router.get('/:id', authMiddleware, async (req, res) => {
     } else if (type === 'SERIAL') {
       let query = 'SELECT serial_no FROM product_serials WHERE product_id = ?'
       const qParams = [id]
-      if (warehouseId) {
+      if (scope.warehouseId) {
         query += ' AND warehouse_id = ?'
-        qParams.push(warehouseId)
+        qParams.push(scope.warehouseId)
       }
       query += ' ORDER BY id ASC'
       const [serialRows] = await pool.query(query, qParams)
@@ -240,10 +269,19 @@ router.get('/:id/warehouse-stock', authMiddleware, async (req, res) => {
     const pool = await getPool()
     await ensureDefaultWarehouseId1(pool)
     await ensureWarehouseStockTable(pool)
-    const [rows] = await pool.query(
-      'SELECT pws.warehouse_id AS warehouseId, w.name AS warehouseName, pws.quantity AS quantity FROM product_warehouse_stock pws JOIN warehouses w ON w.id = pws.warehouse_id WHERE pws.product_id = ? ORDER BY w.name ASC',
-      [productId]
-    )
+    const isAdmin = isAdminUser(req.user)
+    const userWarehouseId = getUserWarehouseId(req.user)
+    const [rows] = isAdmin
+      ? await pool.query(
+          'SELECT pws.warehouse_id AS warehouseId, w.name AS warehouseName, pws.quantity AS quantity FROM product_warehouse_stock pws JOIN warehouses w ON w.id = pws.warehouse_id WHERE pws.product_id = ? ORDER BY w.name ASC',
+          [productId]
+        )
+      : userWarehouseId
+        ? await pool.query(
+            'SELECT pws.warehouse_id AS warehouseId, w.name AS warehouseName, pws.quantity AS quantity FROM product_warehouse_stock pws JOIN warehouses w ON w.id = pws.warehouse_id WHERE pws.product_id = ? AND pws.warehouse_id = ? ORDER BY w.name ASC',
+            [productId, userWarehouseId]
+          )
+        : [[]]
     const items = (rows || []).map(r => ({
       warehouseId: Number(r.warehouseId),
       warehouseName: r.warehouseName,
@@ -261,7 +299,9 @@ router.post('/:id/warehouse-stock/transfer', authMiddleware, roleMiddleware(['AD
   try {
     const productId = Number(req.params.id)
     const { fromWarehouseId, toWarehouseId, quantity } = req.body || {}
-    const fromId = Number(fromWarehouseId)
+    const isAdmin = isAdminUser(req.user)
+    const userWarehouseId = getUserWarehouseId(req.user)
+    const fromId = isAdmin ? Number(fromWarehouseId) : Number(userWarehouseId || 0)
     const toId = Number(toWarehouseId)
     const qty = Number(quantity)
 
@@ -270,6 +310,12 @@ router.post('/:id/warehouse-stock/transfer', authMiddleware, roleMiddleware(['AD
     }
     if (!fromId || !toId || Number.isNaN(fromId) || Number.isNaN(toId)) {
       return res.status(400).json({ error: 'IDs de almacén inválidos' })
+    }
+    if (!isAdmin && !userWarehouseId) {
+      return res.status(400).json({ error: 'El usuario no tiene una tienda asignada para transferir' })
+    }
+    if (!isAdmin && Number(fromWarehouseId || 0) && Number(fromWarehouseId) !== Number(userWarehouseId)) {
+      return res.status(403).json({ error: 'Solo puedes transferir desde tu tienda asignada' })
     }
     if (fromId === toId) {
       return res.status(400).json({ error: 'El almacén origen y destino deben ser distintos' })
@@ -723,10 +769,43 @@ router.delete('/:id', authMiddleware, async (req, res) => {
   try {
     const id = Number(req.params.id)
     const pool = await getPool()
+    await ensureWarehouseStockTable(pool)
+
+    const [rows] = await pool.query(
+      `SELECT p.id, COALESCE(SUM(pws.quantity), 0) AS stock
+       FROM products p
+       LEFT JOIN product_warehouse_stock pws ON p.id = pws.product_id
+       WHERE p.id = ?
+       GROUP BY p.id
+       LIMIT 1`,
+      [id]
+    )
+
+    const product = Array.isArray(rows) ? rows[0] : null
+    if (!product) {
+      return res.status(404).json({ error: 'Producto no encontrado' })
+    }
+
+    if (Number(product.stock || 0) > 0) {
+      return res.status(409).json({
+        error: 'No se puede eliminar un producto con stock. Ajusta el inventario a 0 antes de eliminarlo.',
+      })
+    }
+
+    await pool.query('DELETE FROM product_batches WHERE product_id = ?', [id])
+    await pool.query('DELETE FROM product_imeis WHERE product_id = ?', [id])
+    await pool.query('DELETE FROM product_serials WHERE product_id = ?', [id])
+    await pool.query('DELETE FROM product_variants WHERE product_id = ?', [id])
+    await pool.query('DELETE FROM product_warehouse_stock WHERE product_id = ?', [id])
     await pool.query('DELETE FROM products WHERE id = ?', [id])
     return res.json({ ok: true })
   } catch (err) {
     console.error('Products DELETE error:', err)
+    if (err?.code === 'ER_ROW_IS_REFERENCED_2' || err?.code === 'ER_ROW_IS_REFERENCED') {
+      return res.status(409).json({
+        error: 'No se puede eliminar el producto porque tiene movimientos o documentos asociados.',
+      })
+    }
     return res.status(500).json({ error: 'Server error' })
   }
 })

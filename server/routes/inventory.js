@@ -4,6 +4,31 @@ import { getPool } from '../db.js'
 
 const router = express.Router()
 
+async function ensureInventoryAdjustmentTypes(pool) {
+  const [rows] = await pool.query(`SHOW COLUMNS FROM inventory_movements LIKE 'type'`)
+  const columnType = String(rows?.[0]?.Type || '').toUpperCase()
+  if (columnType.includes('ADJUSTMENT_IN') && columnType.includes('ADJUSTMENT_OUT')) {
+    return
+  }
+
+  await pool.query(`
+    ALTER TABLE inventory_movements
+    MODIFY COLUMN type ENUM(
+      'INITIAL',
+      'PURCHASE',
+      'SALE',
+      'TRANSFER_IN',
+      'TRANSFER_OUT',
+      'ADJUSTMENT',
+      'ADJUSTMENT_IN',
+      'ADJUSTMENT_OUT',
+      'IN',
+      'OUT',
+      'ADJ'
+    ) NOT NULL
+  `)
+}
+
 // Listar movimientos de inventario
 router.get('/movements', authMiddleware, async (req, res) => {
   try {
@@ -224,6 +249,7 @@ router.post('/adjust', authMiddleware, async (req, res) => {
     if (qty === 0) return res.status(400).json({ error: 'La cantidad no puede ser 0' })
 
     const pool = await getPool()
+    await ensureInventoryAdjustmentTypes(pool)
     const conn = await pool.getConnection()
     
     try {
@@ -257,8 +283,8 @@ router.post('/adjust', authMiddleware, async (req, res) => {
           for (const batch of batches) {
             if (batch.batchNo && batch.expiryDate && batch.quantity > 0) {
               await conn.query(
-                'INSERT INTO product_batches (product_id, batch_no, expiry_date, quantity) VALUES (?, ?, ?, ?)',
-                [productId, batch.batchNo, batch.expiryDate, batch.quantity]
+                'INSERT INTO product_batches (product_id, batch_no, expiry_date, quantity, warehouse_id) VALUES (?, ?, ?, ?, ?)',
+                [productId, batch.batchNo, batch.expiryDate, batch.quantity, warehouseId]
               )
             }
           }
@@ -278,8 +304,8 @@ router.post('/adjust', authMiddleware, async (req, res) => {
             if (existing.length > 0) throw new Error(`El IMEI ${imei} ya existe`)
             
             await conn.query(
-              'INSERT INTO product_imeis (product_id, imei, status) VALUES (?, ?, "AVAILABLE")',
-              [productId, imei]
+              'INSERT INTO product_imeis (product_id, imei, status, warehouse_id) VALUES (?, ?, "AVAILABLE", ?)',
+              [productId, imei, warehouseId]
             )
           }
         }
@@ -296,8 +322,8 @@ router.post('/adjust', authMiddleware, async (req, res) => {
             if (existing.length > 0) throw new Error(`La serie ${serial} ya existe`)
 
             await conn.query(
-              'INSERT INTO product_serials (product_id, serial_no, status) VALUES (?, ?, "AVAILABLE")',
-              [productId, serial]
+              'INSERT INTO product_serials (product_id, serial_no, status, warehouse_id) VALUES (?, ?, "AVAILABLE", ?)',
+              [productId, serial, warehouseId]
             )
           }
         }

@@ -6,18 +6,26 @@ interface Role {
   name: string
 }
 
+interface Warehouse {
+  id: number
+  name: string
+}
+
 interface User {
   id: number
   name: string
   email: string
   role_id: number
   role_name: string
+  warehouse_id?: number | null
+  warehouse_name?: string | null
   active: number
 }
 
 export default function Users() {
   const [users, setUsers] = useState<User[]>([])
   const [roles, setRoles] = useState<Role[]>([])
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([])
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingUser, setEditingUser] = useState<User | null>(null)
   
@@ -26,12 +34,14 @@ export default function Users() {
     email: '',
     password: '',
     role_id: 0,
+    warehouse_id: 0,
     active: true
   })
 
   useEffect(() => {
     fetchUsers()
     fetchRoles()
+    fetchWarehouses()
   }, [])
 
   const fetchUsers = async () => {
@@ -47,6 +57,15 @@ export default function Users() {
     try {
       const { data } = await api.get('/roles')
       setRoles(data)
+    } catch (err) {
+      console.error(err)
+    }
+  }
+
+  const fetchWarehouses = async () => {
+    try {
+      const { data } = await api.get('/warehouses')
+      setWarehouses(data)
     } catch (err) {
       console.error(err)
     }
@@ -78,11 +97,19 @@ export default function Users() {
         email: user.email,
         password: '',
         role_id: user.role_id,
+        warehouse_id: Number(user.warehouse_id || 0),
         active: user.active === 1
       })
     } else {
       setEditingUser(null)
-      setFormData({ name: '', email: '', password: '', role_id: roles[0]?.id || 0, active: true })
+      setFormData({
+        name: '',
+        email: '',
+        password: '',
+        role_id: roles[0]?.id || 0,
+        warehouse_id: warehouses[0]?.id || 0,
+        active: true
+      })
     }
     setIsModalOpen(true)
   }
@@ -113,6 +140,7 @@ export default function Users() {
               <th style={{ textAlign: 'left', padding: 8 }}>Nombre</th>
               <th style={{ textAlign: 'left', padding: 8 }}>Email</th>
               <th style={{ textAlign: 'left', padding: 8 }}>Rol</th>
+              <th style={{ textAlign: 'left', padding: 8 }}>Tienda</th>
               <th style={{ textAlign: 'left', padding: 8 }}>Estado</th>
               <th style={{ textAlign: 'left', padding: 8 }}>Acciones</th>
             </tr>
@@ -123,6 +151,7 @@ export default function Users() {
                 <td style={{ padding: 8, fontWeight: 500 }}>{user.name}</td>
                 <td style={{ padding: 8 }}>{user.email}</td>
                 <td style={{ padding: 8 }}>{user.role_name}</td>
+                <td style={{ padding: 8 }}>{user.warehouse_name || 'Sin asignar'}</td>
                 <td style={{ padding: 8 }}>
                   <span style={{ 
                     padding: '2px 8px', 
@@ -202,6 +231,18 @@ export default function Users() {
                   >
                     {roles.map(r => (
                       <option key={r.id} value={r.id}>{r.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div style={{ marginBottom: 12 }}>
+                  <label>Tienda / Almacén</label>
+                  <select
+                    value={formData.warehouse_id}
+                    onChange={e => setFormData({ ...formData, warehouse_id: Number(e.target.value) })}
+                  >
+                    <option value={0}>Sin asignar</option>
+                    {warehouses.map(w => (
+                      <option key={w.id} value={w.id}>{w.name}</option>
                     ))}
                   </select>
                 </div>

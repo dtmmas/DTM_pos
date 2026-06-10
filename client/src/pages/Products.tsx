@@ -961,7 +961,9 @@ export default function Products() {
       setProducts(prev => prev.filter(p => p.id !== deleteTarget.id))
       setDeleteTarget(null)
     } catch (err: any) {
-      setError(err?.message || 'Error eliminando producto')
+      const msg = err?.response?.data?.error || err?.message || 'Error eliminando producto'
+      alert(msg)
+      setError(msg)
     } finally {
       setLoading(false)
     }
@@ -1093,22 +1095,22 @@ export default function Products() {
                   style={{
                     background: 'var(--modal)',
                     border: '1px solid var(--border)',
-                    borderRadius: 20,
+                    borderRadius: 18,
                     overflow: 'hidden',
                     display: 'flex',
                     flexDirection: 'column',
-                    minHeight: 418,
-                    boxShadow: '0 10px 30px rgba(15, 23, 42, 0.08)'
+                    minHeight: 352,
+                    boxShadow: '0 8px 24px rgba(15, 23, 42, 0.07)'
                   }}
                 >
-                  <div style={{ position: 'relative', padding: 14, paddingBottom: 0 }}>
+                  <div style={{ position: 'relative', padding: 12, paddingBottom: 0 }}>
                     <img
                       src={p.imageUrl || 'https://via.placeholder.com/800x600?text=IMG'}
                       alt={p.name}
                       style={{
                         width: '100%',
-                        height: 204,
-                        borderRadius: 18,
+                        height: 156,
+                        borderRadius: 16,
                         objectFit: 'cover',
                         cursor: 'zoom-in',
                         background: 'var(--bg)'
@@ -1123,10 +1125,10 @@ export default function Products() {
                     <div
                       style={{
                         position: 'absolute',
-                        top: 26,
-                        right: 26,
-                        fontSize: 12,
-                        padding: '6px 10px',
+                        top: 20,
+                        right: 20,
+                        fontSize: 11,
+                        padding: '5px 9px',
                         borderRadius: 999,
                         backdropFilter: 'blur(8px)',
                         background: 'rgba(255,255,255,0.88)',
@@ -1146,15 +1148,15 @@ export default function Products() {
                     </div>
                   </div>
 
-                  <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12, flex: 1 }}>
+                  <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 10, flex: 1 }}>
                     <div>
                       <div
                         style={{
                           fontWeight: 700,
-                          fontSize: 17,
+                          fontSize: 15,
                           lineHeight: 1.3,
                           color: 'var(--text)',
-                          marginBottom: 4,
+                          marginBottom: 3,
                           display: '-webkit-box',
                           WebkitLineClamp: 2,
                           WebkitBoxOrient: 'vertical',
@@ -1163,13 +1165,13 @@ export default function Products() {
                       >
                         {p.name}
                       </div>
-                      <div style={{ fontSize: 12, letterSpacing: 0.3, color: '#60A5FA' }}>
+                      <div style={{ fontSize: 11, letterSpacing: 0.2, color: '#60A5FA' }}>
                         SKU: {p.sku || '—'}
                       </div>
                     </div>
 
-                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: 11, padding: '5px 10px', border: '1px solid var(--border)', borderRadius: 999, background: 'var(--bg)' }}>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 10, padding: '4px 8px', border: '1px solid var(--border)', borderRadius: 999, background: 'var(--bg)' }}>
                         {p.categoryId
                           ? (() => {
                               const cat = categoryById[p.categoryId]
@@ -1178,7 +1180,7 @@ export default function Products() {
                             })()
                           : 'Sin categoria'}
                       </span>
-                      <span style={{ fontSize: 11, padding: '5px 10px', border: '1px solid var(--border)', borderRadius: 999, background: 'var(--bg)' }}>
+                      <span style={{ fontSize: 10, padding: '4px 8px', border: '1px solid var(--border)', borderRadius: 999, background: 'var(--bg)' }}>
                         {p.categoryId
                           ? (() => {
                               const cat = categoryById[p.categoryId]
@@ -1189,25 +1191,25 @@ export default function Products() {
                       </span>
                     </div>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                      <div style={{ padding: '10px 12px', borderRadius: 14, background: 'var(--bg)', border: '1px solid var(--border)' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                      <div style={{ padding: '8px 10px', borderRadius: 12, background: 'var(--bg)', border: '1px solid var(--border)' }}>
                         <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>Precio</div>
-                        <div style={{ fontWeight: 800, fontSize: 18, color: 'var(--text)' }}>{formatMoney(p.price ?? 0, currency)}</div>
+                        <div style={{ fontWeight: 800, fontSize: 16, color: 'var(--text)' }}>{formatMoney(p.price ?? 0, currency)}</div>
                       </div>
-                      <div style={{ padding: '10px 12px', borderRadius: 14, background: 'rgba(245, 158, 11, 0.10)', border: '1px solid rgba(245, 158, 11, 0.25)' }}>
+                      <div style={{ padding: '8px 10px', borderRadius: 12, background: 'rgba(245, 158, 11, 0.10)', border: '1px solid rgba(245, 158, 11, 0.25)' }}>
                         <div style={{ fontSize: 11, color: '#92400E', marginBottom: 4 }}>Costo</div>
-                        <div style={{ fontWeight: 700, fontSize: 16, color: '#92400E' }}>{formatMoney(p.cost ?? 0, currency)}</div>
+                        <div style={{ fontWeight: 700, fontSize: 14, color: '#92400E' }}>{formatMoney(p.cost ?? 0, currency)}</div>
                       </div>
                     </div>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 12, color: 'var(--muted)' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, fontSize: 11, color: 'var(--muted)' }}>
                       <div>Marca: {p.brandId ? (brandMap[p.brandId] || '—') : '—'}</div>
                       <div>Unidad: {resolveUnitName(unitNameByCode, p.unit)}</div>
                       <div>Proveedor: {p.supplierId ? (supplierMap[p.supplierId] || '—') : '—'}</div>
                       <div>Stock min: {p.minStock ?? '—'}</div>
                     </div>
 
-                    <div style={{ display: 'flex', gap: 8, marginTop: 'auto', paddingTop: 4 }}>
+                    <div style={{ display: 'flex', gap: 8, marginTop: 'auto', paddingTop: 2 }}>
                     <button className="icon-btn" title="Ver detalles" aria-label="Ver detalles" onClick={() => openDetails(p.id)}>
                       <svg viewBox="0 0 24 24" width="18" height="18"><path d="M12 5c-7 0-11 7-11 7s4 7 11 7 11-7 11-7-4-7-11-7zm0 11a4 4 0 1 1 0-8 4 4 0 0 1 0 8z" fill="currentColor"/></svg>
                     </button>
@@ -1770,11 +1772,11 @@ export default function Products() {
       {showDetails && (
         <>
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <div className="responsive-detail-modal" style={{ width: 840, maxWidth: '92vw', maxHeight: '88vh', overflowY: 'auto', background: 'var(--modal)', border: '1px solid var(--border)', borderRadius: 24, padding: 20, boxShadow: '0 24px 60px rgba(15, 23, 42, 0.22)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+            <div className="responsive-detail-modal" style={{ width: 760, maxWidth: '92vw', maxHeight: '86vh', overflowY: 'auto', background: 'var(--modal)', border: '1px solid var(--border)', borderRadius: 22, padding: 18, boxShadow: '0 20px 54px rgba(15, 23, 42, 0.2)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
               <div>
-                <h3 style={{ margin: 0, fontSize: 24 }}>Detalle de producto</h3>
-                <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>
+                <h3 style={{ margin: 0, fontSize: 22 }}>Detalle de producto</h3>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
                   Vista resumida de informacion comercial e inventario.
                 </div>
               </div>
@@ -1790,49 +1792,49 @@ export default function Products() {
             {detailsLoading && <div>Cargando detalles...</div>}
             {detailsError && <div style={{ color: '#ef4444' }}>{detailsError}</div>}
             {!detailsLoading && !detailsError && details && (
-                <div style={{ display: 'grid', gap: 12 }}>
+                <div style={{ display: 'grid', gap: 10 }}>
                   <div className="responsive-two-col" style={{ alignItems: 'stretch' }}>
-                    <div style={{ background: 'linear-gradient(180deg, var(--bg), var(--surface))', border: '1px solid var(--border)', borderRadius: 22, padding: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
-                      <div style={{ width: '100%', height: 240, borderRadius: 18, overflow: 'hidden', background: 'var(--bg)', border: '1px solid var(--border)' }}>
+                    <div style={{ background: 'linear-gradient(180deg, var(--bg), var(--surface))', border: '1px solid var(--border)', borderRadius: 20, padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      <div style={{ width: '100%', height: 190, borderRadius: 16, overflow: 'hidden', background: 'var(--bg)', border: '1px solid var(--border)' }}>
                         <img src={details.imageUrl || 'https://via.placeholder.com/800x800?text=IMG'} alt={details.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                       </div>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                        <span style={{ fontSize: 11, padding: '6px 10px', border: '1px solid var(--border)', borderRadius: 999, background: 'var(--modal)' }}>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                        <span style={{ fontSize: 10, padding: '5px 8px', border: '1px solid var(--border)', borderRadius: 999, background: 'var(--modal)' }}>
                           {String(details.productType || 'GENERAL').toUpperCase()}
                         </span>
-                        <span style={{ fontSize: 11, padding: '6px 10px', border: '1px solid var(--border)', borderRadius: 999, background: 'var(--modal)' }}>
+                        <span style={{ fontSize: 10, padding: '5px 8px', border: '1px solid var(--border)', borderRadius: 999, background: 'var(--modal)' }}>
                           {resolveUnitName(unitNameByCode, details.unit)}
                         </span>
                       </div>
-                      <div style={{ padding: 12, borderRadius: 16, background: 'var(--modal)', border: '1px solid var(--border)' }}>
+                      <div style={{ padding: 10, borderRadius: 14, background: 'var(--modal)', border: '1px solid var(--border)' }}>
                         <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>SKU</div>
-                        <div style={{ fontWeight: 700, color: '#60A5FA', wordBreak: 'break-word' }}>{details.sku || '—'}</div>
+                        <div style={{ fontWeight: 700, fontSize: 13, color: '#60A5FA', wordBreak: 'break-word' }}>{details.sku || '—'}</div>
                       </div>
                     </div>
 
-                    <div style={{ display: 'grid', gap: 14 }}>
-                      <div style={{ background: 'var(--modal)', border: '1px solid var(--border)', borderRadius: 22, padding: 18 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 14, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'grid', gap: 12 }}>
+                      <div style={{ background: 'var(--modal)', border: '1px solid var(--border)', borderRadius: 20, padding: 16 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
                           <div>
-                            <div style={{ fontSize: 28, fontWeight: 800, lineHeight: 1.2, color: 'var(--text)', marginBottom: 6 }}>
+                            <div style={{ fontSize: 22, fontWeight: 800, lineHeight: 1.2, color: 'var(--text)', marginBottom: 6 }}>
                               {details.name}
                             </div>
-                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                              <span style={{ fontSize: 11, padding: '6px 10px', border: '1px solid var(--border)', borderRadius: 999, background: 'var(--bg)' }}>
+                            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                              <span style={{ fontSize: 10, padding: '5px 8px', border: '1px solid var(--border)', borderRadius: 999, background: 'var(--bg)' }}>
                                 Cat: {detailsCatName ?? '—'}
                               </span>
-                              <span style={{ fontSize: 11, padding: '6px 10px', border: '1px solid var(--border)', borderRadius: 999, background: 'var(--bg)' }}>
+                              <span style={{ fontSize: 10, padding: '5px 8px', border: '1px solid var(--border)', borderRadius: 999, background: 'var(--bg)' }}>
                                 Sub: {detailsSubName ?? '—'}
                               </span>
-                              <span style={{ fontSize: 11, padding: '6px 10px', border: '1px solid var(--border)', borderRadius: 999, background: 'var(--bg)' }}>
+                              <span style={{ fontSize: 10, padding: '5px 8px', border: '1px solid var(--border)', borderRadius: 999, background: 'var(--bg)' }}>
                                 Dept: {detailsDeptName ?? '—'}
                               </span>
                             </div>
                           </div>
                           <div
                             style={{
-                              fontSize: 12,
-                              padding: '8px 12px',
+                              fontSize: 11,
+                              padding: '7px 10px',
                               borderRadius: 999,
                               ...(details.minStock !== undefined && details.minStock !== null
                                 ? ((Number(details.stock ?? 0) < Number(details.minStock))
@@ -1849,32 +1851,32 @@ export default function Products() {
                       </div>
 
                       <div className="responsive-three-col">
-                        <div style={{ padding: 16, borderRadius: 18, background: 'var(--bg)', border: '1px solid var(--border)' }}>
+                        <div style={{ padding: 14, borderRadius: 16, background: 'var(--bg)', border: '1px solid var(--border)' }}>
                           <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>Precio venta</div>
-                          <div style={{ fontWeight: 800, fontSize: 22, color: 'var(--text)' }}>{formatMoney(details.price ?? 0, currency)}</div>
+                          <div style={{ fontWeight: 800, fontSize: 18, color: 'var(--text)' }}>{formatMoney(details.price ?? 0, currency)}</div>
                         </div>
-                        <div style={{ padding: 16, borderRadius: 18, background: 'rgba(245, 158, 11, 0.10)', border: '1px solid rgba(245, 158, 11, 0.22)' }}>
+                        <div style={{ padding: 14, borderRadius: 16, background: 'rgba(245, 158, 11, 0.10)', border: '1px solid rgba(245, 158, 11, 0.22)' }}>
                           <div style={{ fontSize: 11, color: '#92400E', marginBottom: 6 }}>Costo</div>
-                          <div style={{ fontWeight: 800, fontSize: 20, color: '#92400E' }}>{formatMoney(details.cost ?? 0, currency)}</div>
+                          <div style={{ fontWeight: 800, fontSize: 17, color: '#92400E' }}>{formatMoney(details.cost ?? 0, currency)}</div>
                         </div>
-                        <div style={{ padding: 16, borderRadius: 18, background: 'var(--bg)', border: '1px solid var(--border)' }}>
+                        <div style={{ padding: 14, borderRadius: 16, background: 'var(--bg)', border: '1px solid var(--border)' }}>
                           <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>Stock minimo</div>
-                          <div style={{ fontWeight: 800, fontSize: 20, color: 'var(--text)' }}>{details.minStock ?? '—'}</div>
+                          <div style={{ fontWeight: 800, fontSize: 17, color: 'var(--text)' }}>{details.minStock ?? '—'}</div>
                         </div>
                       </div>
 
                       <div className="responsive-three-col">
-                        <div style={{ padding: 14, borderRadius: 18, background: 'var(--modal)', border: '1px solid var(--border)' }}>
+                        <div style={{ padding: 12, borderRadius: 16, background: 'var(--modal)', border: '1px solid var(--border)' }}>
                           <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>Precio 2</div>
-                          <div style={{ fontWeight: 700, fontSize: 18 }}>{formatMoney(details.price2 ?? 0, currency)}</div>
+                          <div style={{ fontWeight: 700, fontSize: 16 }}>{formatMoney(details.price2 ?? 0, currency)}</div>
                         </div>
-                        <div style={{ padding: 14, borderRadius: 18, background: 'var(--modal)', border: '1px solid var(--border)' }}>
+                        <div style={{ padding: 12, borderRadius: 16, background: 'var(--modal)', border: '1px solid var(--border)' }}>
                           <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>Precio 3</div>
-                          <div style={{ fontWeight: 700, fontSize: 18 }}>{formatMoney(details.price3 ?? 0, currency)}</div>
+                          <div style={{ fontWeight: 700, fontSize: 16 }}>{formatMoney(details.price3 ?? 0, currency)}</div>
                         </div>
-                        <div style={{ padding: 14, borderRadius: 18, background: 'var(--modal)', border: '1px solid var(--border)' }}>
+                        <div style={{ padding: 12, borderRadius: 16, background: 'var(--modal)', border: '1px solid var(--border)' }}>
                           <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>Stock inicial</div>
-                          <div style={{ fontWeight: 700, fontSize: 18 }}>{details.initialStock ?? '—'}</div>
+                          <div style={{ fontWeight: 700, fontSize: 16 }}>{details.initialStock ?? '—'}</div>
                         </div>
                       </div>
                     </div>
@@ -2062,6 +2064,10 @@ export default function Products() {
             <h3 style={{ margin: 0, marginBottom: 12 }}>Confirmar eliminación</h3>
             <div style={{ marginBottom: 12 }}>
               Esta acción eliminará el producto <strong>{deleteTarget.name}</strong> de forma permanente. ¿Confirmar?
+            </div>
+            <div style={{ marginBottom: 12, padding: '10px 12px', borderRadius: 10, border: '1px solid var(--border)', background: 'rgba(245, 158, 11, 0.12)', color: 'var(--text)' }}>
+              Solo se puede eliminar un producto cuando su stock esté en <strong>0</strong>.
+              Stock actual: <strong>{Number(deleteTarget.stock || 0)}</strong>.
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
               <button onClick={() => setDeleteTarget(null)} disabled={loading}>Cancelar</button>

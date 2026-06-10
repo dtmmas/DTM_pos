@@ -1,5 +1,5 @@
 import express from 'express'
-import { authMiddleware } from '../auth.js'
+import { authMiddleware, getUserWarehouseId, isAdminUser } from '../auth.js'
 import { getPool } from '../db.js'
 import { registerMovement } from '../services/inventory.js'
 
@@ -41,6 +41,23 @@ async function ensureSalesSchema(db) {
     }
   }
 
+  const hasSalesWarehouseId = await columnExists(db, 'sales', 'warehouse_id')
+  if (!hasSalesWarehouseId) {
+    await db.query('ALTER TABLE sales ADD COLUMN warehouse_id INT NULL')
+  }
+
+  if (!(await fkExists(db, 'sales', 'fk_sales_warehouse'))) {
+    try {
+      await db.query(`
+        ALTER TABLE sales
+        ADD CONSTRAINT fk_sales_warehouse
+        FOREIGN KEY (warehouse_id) REFERENCES warehouses(id) ON DELETE SET NULL
+      `)
+    } catch (error) {
+      console.warn(`Skipped fk_sales_warehouse: ${error.message}`)
+    }
+  }
+
   // Completa ventas históricas usando primero inventory_movements y luego caja.
   await db.query(`
     UPDATE sales s
@@ -70,6 +87,29 @@ async function ensureSalesSchema(db) {
     WHERE (s.user_id IS NULL OR s.user_id = 0)
       AND sale_shift.opened_by IS NOT NULL
   `)
+
+  await db.query(`
+    UPDATE sales s
+    LEFT JOIN (
+      SELECT reference_id AS sale_id, MAX(warehouse_id) AS warehouse_id
+      FROM inventory_movements
+      WHERE type = 'SALE'
+        AND reference_id IS NOT NULL
+        AND warehouse_id IS NOT NULL
+      GROUP BY reference_id
+    ) sale_inventory_warehouse ON sale_inventory_warehouse.sale_id = s.id
+    SET s.warehouse_id = sale_inventory_warehouse.warehouse_id
+    WHERE (s.warehouse_id IS NULL OR s.warehouse_id = 0)
+      AND sale_inventory_warehouse.warehouse_id IS NOT NULL
+  `)
+
+  await db.query(`
+    UPDATE sales s
+    LEFT JOIN users u ON u.id = s.user_id
+    SET s.warehouse_id = u.warehouse_id
+    WHERE (s.warehouse_id IS NULL OR s.warehouse_id = 0)
+      AND u.warehouse_id IS NOT NULL
+  `)
 }
 
 async function buildSalesContext(db) {
@@ -92,6 +132,7 @@ async function buildSalesContext(db) {
       : 'LEFT JOIN users iu ON iu.id = sale_inventory_user.user_id',
     baseJoins: `
       LEFT JOIN customers c ON s.customer_id = c.id
+      LEFT JOIN warehouses sw ON sw.id = s.warehouse_id
       LEFT JOIN (
         SELECT sale_id, MIN(paid) AS credit_fully_paid
         FROM installments
@@ -130,9 +171,17 @@ function getSalesFilters(req, context, forceUserId = null) {
   const startDate = (req.query.startDate || '').toString().slice(0, 10)
   const endDate = (req.query.endDate || '').toString().slice(0, 10)
   const requestedUserId = Number(req.query.userId || 0)
-  const effectiveUserId = forceUserId || (req.user?.role === 'ADMIN' ? requestedUserId : Number(req.user?.id || 0))
+  const requestedWarehouseId = Number(req.query.warehouseId || 0)
+  const isAdmin = isAdminUser(req.user)
+  const effectiveUserId = forceUserId || (isAdmin ? requestedUserId : Number(req.user?.id || 0))
+  const userWarehouseId = getUserWarehouseId(req.user)
+  const effectiveWarehouseId = isAdmin ? requestedWarehouseId : Number(userWarehouseId || 0)
   const where = []
   const params = []
+
+  if (!isAdmin && !userWarehouseId) {
+    where.push('1 = 0')
+  }
 
   if (search) {
     where.push(`(s.doc_no LIKE ? OR c.name LIKE ? OR s.id = ? OR ${context.sellerNameExpr} LIKE ?)`)
@@ -150,6 +199,10 @@ function getSalesFilters(req, context, forceUserId = null) {
     where.push(`${context.sellerIdExpr} = ?`)
     params.push(effectiveUserId)
   }
+  if (effectiveWarehouseId > 0) {
+    where.push('s.warehouse_id = ?')
+    params.push(effectiveWarehouseId)
+  }
 
   return {
     whereClause: where.length ? `WHERE ${where.join(' AND ')}` : '',
@@ -161,6 +214,7 @@ function buildSalesSelect(context, canSeeProfit) {
   return `
     SELECT s.*, c.name AS customer_name,
            i.credit_fully_paid,
+           sw.name AS warehouse_name,
            ${canSeeProfit ? 'COALESCE(calc.cost_total, 0)' : 'NULL'} AS cost_total,
            ${canSeeProfit ? "CASE WHEN s.status = 'CANCELLED' THEN 0 ELSE COALESCE(calc.profit, 0) END" : 'NULL'} AS profit,
            ${context.sellerIdExpr} AS seller_id,
@@ -334,6 +388,12 @@ router.post('/', authMiddleware, async (req, res) => {
 
     const pool = await getPool()
     const conn = await pool.getConnection()
+    const saleWarehouseId = getUserWarehouseId(req.user)
+
+    if (!saleWarehouseId) {
+      conn.release()
+      return res.status(400).json({ error: 'El usuario no tiene una tienda asignada para vender' })
+    }
 
     try {
       await conn.beginTransaction()
@@ -354,11 +414,11 @@ router.post('/', authMiddleware, async (req, res) => {
 
       // 1. Crear Venta
       const saleInsertSql = hasSalesUserId
-        ? 'INSERT INTO sales (customer_id, user_id, doc_no, total, is_credit, payment_method, received_amount, change_amount, reference_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-        : 'INSERT INTO sales (customer_id, doc_no, total, is_credit, payment_method, received_amount, change_amount, reference_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+        ? 'INSERT INTO sales (customer_id, user_id, warehouse_id, doc_no, total, is_credit, payment_method, received_amount, change_amount, reference_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        : 'INSERT INTO sales (customer_id, warehouse_id, doc_no, total, is_credit, payment_method, received_amount, change_amount, reference_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
       const saleInsertParams = hasSalesUserId
-        ? [customerId || null, req.user.id, docNo || null, total, isCredit ? 1 : 0, finalPaymentMethod, receivedAmount || 0, changeAmount || 0, referenceNumber || null]
-        : [customerId || null, docNo || null, total, isCredit ? 1 : 0, finalPaymentMethod, receivedAmount || 0, changeAmount || 0, referenceNumber || null]
+        ? [customerId || null, req.user.id, saleWarehouseId, docNo || null, total, isCredit ? 1 : 0, finalPaymentMethod, receivedAmount || 0, changeAmount || 0, referenceNumber || null]
+        : [customerId || null, saleWarehouseId, docNo || null, total, isCredit ? 1 : 0, finalPaymentMethod, receivedAmount || 0, changeAmount || 0, referenceNumber || null]
       const [saleResult] = await conn.query(saleInsertSql, saleInsertParams)
       const saleId = saleResult.insertId
 
@@ -384,10 +444,6 @@ router.post('/', authMiddleware, async (req, res) => {
           'INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, total, serial, imei) VALUES (?, ?, ?, ?, ?, ?, ?)',
           [saleId, item.productId, item.quantity, item.price, itemTotal, item.serial || null, item.imei || null]
         )
-
-        // Actualizar stock del producto (tablas específicas) y registrar movimiento
-        // Asumimos venta desde Tienda (ID 1) por defecto para POS
-        const saleWarehouseId = 1 
 
         if (item.serial) {
              await conn.query('UPDATE product_serials SET status = "SOLD" WHERE product_id = ? AND serial_no = ? AND warehouse_id = ?', [item.productId, item.serial, saleWarehouseId])
@@ -440,11 +496,25 @@ router.get('/daily', authMiddleware, async (req, res) => {
   try {
     const date = (req.query.date || '').toString().trim()
     const pool = await getPool()
+    await ensureSalesSchema(pool)
+    const isAdmin = isAdminUser(req.user)
+    const warehouseId = getUserWarehouseId(req.user)
+    if (!isAdmin && !warehouseId) {
+      return res.json({ total: 0 })
+    }
     let rows
     if (date) {
-      ;[rows] = await pool.query('SELECT COALESCE(SUM(total), 0) AS total FROM sales WHERE DATE(created_at) = ?', [date])
+      if (isAdmin) {
+        ;[rows] = await pool.query('SELECT COALESCE(SUM(total), 0) AS total FROM sales WHERE DATE(created_at) = ?', [date])
+      } else {
+        ;[rows] = await pool.query('SELECT COALESCE(SUM(total), 0) AS total FROM sales WHERE DATE(created_at) = ? AND warehouse_id = ?', [date, warehouseId])
+      }
     } else {
-      ;[rows] = await pool.query('SELECT COALESCE(SUM(total), 0) AS total FROM sales WHERE DATE(created_at) = CURDATE()')
+      if (isAdmin) {
+        ;[rows] = await pool.query('SELECT COALESCE(SUM(total), 0) AS total FROM sales WHERE DATE(created_at) = CURDATE()')
+      } else {
+        ;[rows] = await pool.query('SELECT COALESCE(SUM(total), 0) AS total FROM sales WHERE DATE(created_at) = CURDATE() AND warehouse_id = ?', [warehouseId])
+      }
     }
     const total = Number(rows?.[0]?.total || 0)
     return res.json({ total })
@@ -459,10 +529,25 @@ router.get('/credits/upcoming', authMiddleware, async (req, res) => {
   try {
     const days = Math.max(0, Number(req.query.days || 7))
     const pool = await getPool()
-    const [rows] = await pool.query(
-      'SELECT COUNT(*) AS c FROM installments WHERE paid = 0 AND due_date <= DATE_ADD(CURDATE(), INTERVAL ? DAY)',
-      [days]
-    )
+    await ensureSalesSchema(pool)
+    const isAdmin = isAdminUser(req.user)
+    const warehouseId = getUserWarehouseId(req.user)
+    if (!isAdmin && !warehouseId) {
+      return res.json({ count: 0, days })
+    }
+    const [rows] = isAdmin
+      ? await pool.query(
+          'SELECT COUNT(*) AS c FROM installments WHERE paid = 0 AND due_date <= DATE_ADD(CURDATE(), INTERVAL ? DAY)',
+          [days]
+        )
+      : await pool.query(
+          `SELECT COUNT(*) AS c
+           FROM installments i
+           JOIN sales s ON s.id = i.sale_id
+           WHERE i.paid = 0 AND i.due_date <= DATE_ADD(CURDATE(), INTERVAL ? DAY)
+             AND s.warehouse_id = ?`,
+          [days, warehouseId]
+        )
     const count = Number(rows?.[0]?.c || 0)
     return res.json({ count, days })
   } catch (err) {
@@ -477,15 +562,31 @@ router.get('/summary', authMiddleware, async (req, res) => {
     const start = (req.query.start || '').toString().slice(0, 10)
     const end = (req.query.end || '').toString().slice(0, 10)
     const pool = await getPool()
+    await ensureSalesSchema(pool)
+    const isAdmin = isAdminUser(req.user)
+    const warehouseId = getUserWarehouseId(req.user)
+    if (!isAdmin && !warehouseId) {
+      return res.json({ total: 0, start: start || null, end: end || null })
+    }
     let rows
     if (start && end) {
-      ;[rows] = await pool.query(
-        'SELECT COALESCE(SUM(total), 0) AS total FROM sales WHERE DATE(created_at) BETWEEN ? AND ?',
-        [start, end]
-      )
+      if (isAdmin) {
+        ;[rows] = await pool.query(
+          'SELECT COALESCE(SUM(total), 0) AS total FROM sales WHERE DATE(created_at) BETWEEN ? AND ?',
+          [start, end]
+        )
+      } else {
+        ;[rows] = await pool.query(
+          'SELECT COALESCE(SUM(total), 0) AS total FROM sales WHERE DATE(created_at) BETWEEN ? AND ? AND warehouse_id = ?',
+          [start, end, warehouseId]
+        )
+      }
     } else {
-      // Fallback: hoy
-      ;[rows] = await pool.query('SELECT COALESCE(SUM(total), 0) AS total FROM sales WHERE DATE(created_at) = CURDATE()')
+      if (isAdmin) {
+        ;[rows] = await pool.query('SELECT COALESCE(SUM(total), 0) AS total FROM sales WHERE DATE(created_at) = CURDATE()')
+      } else {
+        ;[rows] = await pool.query('SELECT COALESCE(SUM(total), 0) AS total FROM sales WHERE DATE(created_at) = CURDATE() AND warehouse_id = ?', [warehouseId])
+      }
     }
     const total = Number(rows?.[0]?.total || 0)
     return res.json({ total, start: start || null, end: end || null })
@@ -500,19 +601,40 @@ router.get('/credits/upcoming/list', authMiddleware, async (req, res) => {
     const days = Math.max(0, Number(req.query.days || 7))
     const limit = Math.max(1, Number(req.query.limit || 10))
     const pool = await getPool()
-    const [rows] = await pool.query(
-      `SELECT i.id AS installment_id, i.sale_id, i.due_date, i.amount,
-              s.doc_no, s.total AS sale_total,
-              c.name AS customer_name
-         FROM installments i
-         JOIN sales s ON s.id = i.sale_id
-    LEFT JOIN customers c ON c.id = s.customer_id
-        WHERE i.paid = 0
-          AND i.due_date <= DATE_ADD(CURDATE(), INTERVAL ? DAY)
-        ORDER BY i.due_date ASC, i.id ASC
-        LIMIT ?`,
-      [days, limit]
-    )
+    await ensureSalesSchema(pool)
+    const isAdmin = isAdminUser(req.user)
+    const warehouseId = getUserWarehouseId(req.user)
+    if (!isAdmin && !warehouseId) {
+      return res.json({ days, limit, items: [] })
+    }
+    const [rows] = isAdmin
+      ? await pool.query(
+          `SELECT i.id AS installment_id, i.sale_id, i.due_date, i.amount,
+                  s.doc_no, s.total AS sale_total,
+                  c.name AS customer_name
+             FROM installments i
+             JOIN sales s ON s.id = i.sale_id
+        LEFT JOIN customers c ON c.id = s.customer_id
+            WHERE i.paid = 0
+              AND i.due_date <= DATE_ADD(CURDATE(), INTERVAL ? DAY)
+            ORDER BY i.due_date ASC, i.id ASC
+            LIMIT ?`,
+          [days, limit]
+        )
+      : await pool.query(
+          `SELECT i.id AS installment_id, i.sale_id, i.due_date, i.amount,
+                  s.doc_no, s.total AS sale_total,
+                  c.name AS customer_name
+             FROM installments i
+             JOIN sales s ON s.id = i.sale_id
+        LEFT JOIN customers c ON c.id = s.customer_id
+            WHERE i.paid = 0
+              AND i.due_date <= DATE_ADD(CURDATE(), INTERVAL ? DAY)
+              AND s.warehouse_id = ?
+            ORDER BY i.due_date ASC, i.id ASC
+            LIMIT ?`,
+          [days, warehouseId, limit]
+        )
     const items = (rows || []).map(r => ({
       id: r.installment_id,
       saleId: r.sale_id,
@@ -537,8 +659,10 @@ router.get('/:id', authMiddleware, async (req, res) => {
     await ensureSalesSchema(pool)
     const context = await buildSalesContext(pool)
     const canSeeProfit = req.user?.role === 'ADMIN'
-    const ownerFilter = canSeeProfit ? '' : ` AND ${context.sellerIdExpr} = ?`
-    const saleParams = canSeeProfit ? [saleId] : [saleId, Number(req.user?.id || 0)]
+    const ownerFilter = canSeeProfit
+      ? ''
+      : (getUserWarehouseId(req.user) ? ' AND s.warehouse_id = ?' : ' AND 1 = 0')
+    const saleParams = canSeeProfit ? [saleId] : [saleId, Number(getUserWarehouseId(req.user) || 0)]
     
     // Venta header
     const [saleRows] = await pool.query(
@@ -593,8 +717,16 @@ router.post('/:id/cancel', authMiddleware, async (req, res) => {
     try {
       await conn.beginTransaction()
 
-      // 1. Verificar estado actual
-      const [saleRows] = await conn.query('SELECT * FROM sales WHERE id = ? FOR UPDATE', [saleId])
+      const isAdmin = isAdminUser(req.user)
+      const userWarehouseId = getUserWarehouseId(req.user)
+      if (!isAdmin && !userWarehouseId) {
+        await conn.rollback()
+        return res.status(403).json({ error: 'No tienes una tienda asignada para cancelar ventas' })
+      }
+
+      const saleWhere = !isAdmin ? ' AND warehouse_id = ?' : ''
+      const saleParams = !isAdmin ? [saleId, userWarehouseId] : [saleId]
+      const [saleRows] = await conn.query(`SELECT * FROM sales WHERE id = ?${saleWhere} FOR UPDATE`, saleParams)
       if (saleRows.length === 0) {
         await conn.rollback()
         return res.status(404).json({ error: 'Venta no encontrada' })
@@ -618,7 +750,7 @@ router.post('/:id/cancel', authMiddleware, async (req, res) => {
         // Restaurar stock usando servicio centralizado
         await registerMovement({
             productId: item.product_id,
-            warehouseId: 1, // Tienda
+            warehouseId: Number(sale.warehouse_id || getUserWarehouseId(req.user) || 0),
             type: 'ADJUSTMENT',
             quantity: item.quantity,
             referenceId: saleId,

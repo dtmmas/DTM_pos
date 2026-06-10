@@ -1,5 +1,5 @@
 import express from 'express'
-import { authMiddleware, roleMiddleware } from '../auth.js'
+import { authMiddleware, getUserWarehouseId, isAdminUser, roleMiddleware } from '../auth.js'
 import { getPool } from '../db.js'
 
 const router = express.Router()
@@ -19,7 +19,24 @@ router.get('/', authMiddleware, async (req, res) => {
   try {
     const pool = await getPool()
     await ensureWarehousesTable(pool)
-    const [rows] = await pool.query('SELECT id, name, type, address, status FROM warehouses ORDER BY name ASC')
+    const isAdmin = isAdminUser(req.user)
+    const userWarehouseId = getUserWarehouseId(req.user)
+    const mode = String(req.query.mode || '').toLowerCase()
+
+    let rows = []
+    if (isAdmin) {
+      ;[rows] = await pool.query('SELECT id, name, type, address, status FROM warehouses ORDER BY name ASC')
+    } else if (mode === 'transfer' && userWarehouseId) {
+      ;[rows] = await pool.query(
+        'SELECT id, name, type, address, status FROM warehouses WHERE status = "ACTIVO" ORDER BY name ASC'
+      )
+    } else if (userWarehouseId) {
+      ;[rows] = await pool.query(
+        'SELECT id, name, type, address, status FROM warehouses WHERE id = ? LIMIT 1',
+        [userWarehouseId]
+      )
+    }
+
     return res.json(rows)
   } catch (err) {
     console.error('Warehouses GET error:', err)

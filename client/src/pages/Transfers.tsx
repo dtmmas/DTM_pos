@@ -85,15 +85,28 @@ export default function Transfers() {
   })
 
   const user = useAuthStore(s => s.user)
+  const isAdmin = String(user?.role || '').toUpperCase() === 'ADMIN'
+  const userWarehouseId = user?.warehouseId ? Number(user.warehouseId) : null
+  const filterWarehouses = isAdmin
+    ? warehouses
+    : warehouses.filter(w => w.id === userWarehouseId)
+  const sourceWarehouse = warehouses.find(w => w.id === userWarehouseId) || null
+  const destinationWarehouses = warehouses.filter(w => w.id !== sourceId)
 
   useEffect(() => {
     loadWarehouses()
     loadTransfers()
   }, [])
 
+  useEffect(() => {
+    if (!isAdmin && userWarehouseId) {
+      setSourceId(userWarehouseId)
+    }
+  }, [isAdmin, userWarehouseId])
+
   const loadWarehouses = async () => {
     try {
-      const res = await api.get('/warehouses')
+      const res = await api.get('/warehouses', { params: { mode: 'transfer' } })
       setWarehouses(res.data)
     } catch (err) {
       console.error(err)
@@ -195,6 +208,9 @@ export default function Transfers() {
     if (!sourceId || !destId) return alert('Seleccione almacenes')
     if (sourceId === destId) return alert('Almacenes deben ser distintos')
     if (items.length === 0) return alert('Agregue productos')
+    if (!isAdmin && userWarehouseId && sourceId !== userWarehouseId) {
+      return alert('Solo puedes transferir desde tu tienda asignada')
+    }
     
     // Validate selections
     for (const item of items) {
@@ -228,7 +244,7 @@ export default function Transfers() {
       setView('list')
       loadTransfers()
       // Reset form
-      setSourceId(null)
+      setSourceId(isAdmin ? null : userWarehouseId)
       setDestId(null)
       setItems([])
       setNotes('')
@@ -257,8 +273,8 @@ export default function Transfers() {
               onChange={e => setFilterWarehouse(e.target.value)}
               style={{ padding: 8, borderRadius: 6, border: '1px solid var(--border)' }}
             >
-              <option value="">Todos los almacenes</option>
-              {warehouses.map(w => (
+              <option value="">{isAdmin ? 'Todos los almacenes' : 'Mis transferencias'}</option>
+              {filterWarehouses.map(w => (
                 <option key={w.id} value={w.id}>{w.name}</option>
               ))}
             </select>
@@ -346,19 +362,34 @@ export default function Transfers() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
             <div>
               <label className="label">Almacén Origen</label>
-              <select 
-                className="input" 
-                value={sourceId || ''} 
-                onChange={e => {
-                    setSourceId(Number(e.target.value))
-                    setItems([]) // Clear items if source changes as stock differs
-                }}
-              >
-                <option value="">Seleccionar...</option>
-                {warehouses.map(w => (
-                  <option key={w.id} value={w.id}>{w.name}</option>
-                ))}
-              </select>
+              {isAdmin ? (
+                <select 
+                  className="input" 
+                  value={sourceId || ''} 
+                  onChange={e => {
+                      setSourceId(Number(e.target.value))
+                      setItems([])
+                  }}
+                >
+                  <option value="">Seleccionar...</option>
+                  {warehouses.map(w => (
+                    <option key={w.id} value={w.id}>{w.name}</option>
+                  ))}
+                </select>
+              ) : (
+                <div
+                  className="input"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    minHeight: 42,
+                    background: 'var(--bg)',
+                    color: 'var(--text)'
+                  }}
+                >
+                  {sourceWarehouse?.name || user?.warehouseName || 'Sin tienda asignada'}
+                </div>
+              )}
             </div>
             <div>
               <label className="label">Almacén Destino</label>
@@ -368,7 +399,7 @@ export default function Transfers() {
                 onChange={e => setDestId(Number(e.target.value))}
               >
                 <option value="">Seleccionar...</option>
-                {warehouses.filter(w => w.id !== sourceId).map(w => (
+                {destinationWarehouses.map(w => (
                   <option key={w.id} value={w.id}>{w.name}</option>
                 ))}
               </select>
@@ -521,7 +552,7 @@ export default function Transfers() {
             <button 
                 className="btn-primary" 
                 onClick={handleSubmit}
-                disabled={!sourceId || !destId || items.length === 0}
+                disabled={!sourceId || !destId || items.length === 0 || (!isAdmin && !userWarehouseId)}
             >
                 Confirmar Transferencia
             </button>

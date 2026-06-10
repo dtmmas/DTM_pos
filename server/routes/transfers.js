@@ -1,5 +1,5 @@
 import express from 'express'
-import { authMiddleware, roleMiddleware } from '../auth.js'
+import { authMiddleware, getUserWarehouseId, isAdminUser, roleMiddleware } from '../auth.js'
 import { getPool } from '../db.js'
 import { registerMovement } from '../services/inventory.js'
 
@@ -15,10 +15,16 @@ router.get('/', authMiddleware, async (req, res) => {
   try {
     const pool = await getPool()
     const { limit = 50, offset = 0 } = req.query
-    
-    // Admins see all, others might see only involved warehouses? 
-    // For now, let's allow viewing history if you have permission.
-    
+
+    const isAdmin = isAdminUser(req.user)
+    const userWarehouseId = getUserWarehouseId(req.user)
+    const whereClause = !isAdmin
+      ? (userWarehouseId ? 'WHERE t.source_warehouse_id = ? OR t.destination_warehouse_id = ?' : 'WHERE 1 = 0')
+      : ''
+    const params = !isAdmin
+      ? (userWarehouseId ? [userWarehouseId, userWarehouseId, Number(limit), Number(offset)] : [Number(limit), Number(offset)])
+      : [Number(limit), Number(offset)]
+
     const [rows] = await pool.query(`
       SELECT t.*, 
              ws.name as source_warehouse_name,
@@ -30,9 +36,10 @@ router.get('/', authMiddleware, async (req, res) => {
       JOIN warehouses ws ON t.source_warehouse_id = ws.id
       JOIN warehouses wd ON t.destination_warehouse_id = wd.id
       LEFT JOIN users u ON t.user_id = u.id
+      ${whereClause}
       ORDER BY t.created_at DESC
       LIMIT ? OFFSET ?
-    `, [Number(limit), Number(offset)])
+    `, params)
     
     return res.json(rows)
   } catch (err) {
@@ -46,6 +53,14 @@ router.get('/:id', authMiddleware, async (req, res) => {
   try {
     const id = Number(req.params.id)
     const pool = await getPool()
+    const isAdmin = isAdminUser(req.user)
+    const userWarehouseId = getUserWarehouseId(req.user)
+    const whereClause = !isAdmin
+      ? (userWarehouseId ? 'AND (t.source_warehouse_id = ? OR t.destination_warehouse_id = ?)' : 'AND 1 = 0')
+      : ''
+    const params = !isAdmin
+      ? (userWarehouseId ? [id, userWarehouseId, userWarehouseId] : [id])
+      : [id]
     
     const [rows] = await pool.query(`
       SELECT t.*, 
@@ -57,7 +72,8 @@ router.get('/:id', authMiddleware, async (req, res) => {
       JOIN warehouses wd ON t.destination_warehouse_id = wd.id
       LEFT JOIN users u ON t.user_id = u.id
       WHERE t.id = ?
-    `, [id])
+      ${whereClause}
+    `, params)
     
     if (rows.length === 0) return res.status(404).json({ error: 'Transfer not found' })
     const transfer = rows[0]
@@ -79,22 +95,30 @@ router.get('/:id', authMiddleware, async (req, res) => {
 // POST /transfers - Create new transfer
 router.post('/', authMiddleware, roleMiddleware(['ADMIN', 'ALMACEN']), async (req, res) => {
   try {
-    console.log('Transfer Request Body:', req.body) // DEBUG
-    // Frontend sends snake_case in payload now, but let's support both or fix destructuring
     const { source_warehouse_id, destination_warehouse_id, items, notes } = req.body
-    
-    // Fallback if frontend sends camelCase
+
     const sourceWarehouseId = source_warehouse_id || req.body.sourceWarehouseId
     const destinationWarehouseId = destination_warehouse_id || req.body.destinationWarehouseId
-    
-    if (!sourceWarehouseId || !destinationWarehouseId) {
-      return res.status(400).json({ error: 'Source and Destination warehouses are required' })
+
+    const isAdmin = isAdminUser(req.user)
+    const userWarehouseId = getUserWarehouseId(req.user)
+    const finalSourceWarehouseId = isAdmin ? Number(sourceWarehouseId) : Number(userWarehouseId || 0)
+    const finalDestinationWarehouseId = Number(destinationWarehouseId)
+
+    if (!isAdmin && !userWarehouseId) {
+      return res.status(400).json({ error: 'El usuario no tiene una tienda asignada para transferir' })
     }
-    if (Number(sourceWarehouseId) === Number(destinationWarehouseId)) {
-      return res.status(400).json({ error: 'Source and Destination must be different' })
+    if (!finalSourceWarehouseId || !finalDestinationWarehouseId) {
+      return res.status(400).json({ error: 'Origen y destino son requeridos' })
+    }
+    if (!isAdmin && userWarehouseId && Number(sourceWarehouseId) && Number(sourceWarehouseId) !== Number(userWarehouseId)) {
+      return res.status(403).json({ error: 'Solo puedes transferir desde tu tienda asignada' })
+    }
+    if (finalSourceWarehouseId === finalDestinationWarehouseId) {
+      return res.status(400).json({ error: 'La tienda origen y destino deben ser diferentes' })
     }
     if (!Array.isArray(items) || items.length === 0) {
-      return res.status(400).json({ error: 'Items list is empty' })
+      return res.status(400).json({ error: 'La lista de productos esta vacia' })
     }
     
     const pool = await getPool()
@@ -102,63 +126,78 @@ router.post('/', authMiddleware, roleMiddleware(['ADMIN', 'ALMACEN']), async (re
     
     try {
       await conn.beginTransaction()
+
+      const [warehouseRows] = await conn.query(
+        'SELECT id, status FROM warehouses WHERE id IN (?, ?)',
+        [finalSourceWarehouseId, finalDestinationWarehouseId]
+      )
+      const sourceWarehouse = warehouseRows.find(row => Number(row.id) === finalSourceWarehouseId)
+      const destinationWarehouse = warehouseRows.find(row => Number(row.id) === finalDestinationWarehouseId)
+      if (!sourceWarehouse || !destinationWarehouse) {
+        await conn.rollback()
+        return res.status(404).json({ error: 'La tienda origen o destino no existe' })
+      }
+      if (String(sourceWarehouse.status || '').toUpperCase() !== 'ACTIVO' || String(destinationWarehouse.status || '').toUpperCase() !== 'ACTIVO') {
+        await conn.rollback()
+        return res.status(400).json({ error: 'Solo se puede transferir entre tiendas activas' })
+      }
       
-      // 1. Create Transfer Record
       const [resHeader] = await conn.query(`
         INSERT INTO transfers (source_warehouse_id, destination_warehouse_id, status, user_id, notes)
         VALUES (?, ?, 'COMPLETED', ?, ?)
-      `, [sourceWarehouseId, destinationWarehouseId, req.user.id, notes || ''])
+      `, [finalSourceWarehouseId, finalDestinationWarehouseId, req.user.id, notes || ''])
       
       const transferId = resHeader.insertId
       
-      // 2. Process Items
       for (const item of items) {
-        // Frontend sends snake_case now? Or camel? Let's normalize
         const productId = item.product_id || item.productId
-        const quantity = item.quantity
+        const quantity = Number(item.quantity || 0)
         const batchNo = item.batch_no || item.batchNo
         const imei = item.imei
         const serial = item.serial
 
         if (!isValidNumber(quantity)) continue
-        
-        // Insert Transfer Item
-        // We need to store details in transfer_items if possible, or just rely on movements.
-        // Current transfer_items table only has quantity. 
-        // Ideally we should add batch_no, imei, serial columns to transfer_items for audit.
-        // For now, we just insert basic info and rely on inventory_movements for detailed history?
-        // Wait, inventory_movements also doesn't store batch/imei natively in separate columns, just notes/ref?
-        // Actually, for strict audit, we should alter transfer_items.
-        
+
         await conn.query(`
           INSERT INTO transfer_items (transfer_id, product_id, quantity)
           VALUES (?, ?, ?)
         `, [transferId, productId, quantity])
         
-        // Handle specific stock details (Batch, IMEI, Serial)
-        // 1. Move OUT from Source
         if (batchNo) {
-             await conn.query('UPDATE product_batches SET quantity = quantity - ? WHERE product_id = ? AND batch_no = ? AND warehouse_id = ?', [quantity, productId, batchNo, sourceWarehouseId])
+             const [batchResult] = await conn.query(
+               'UPDATE product_batches SET quantity = quantity - ? WHERE product_id = ? AND batch_no = ? AND warehouse_id = ? AND quantity >= ?',
+               [quantity, productId, batchNo, finalSourceWarehouseId, quantity]
+             )
+             if (!batchResult.affectedRows) {
+               throw new Error(`Stock insuficiente o lote no disponible para el producto ${productId} en la tienda origen`)
+             }
         } else if (imei) {
-             await conn.query('UPDATE product_imeis SET warehouse_id = ? WHERE product_id = ? AND imei = ?', [destinationWarehouseId, productId, imei])
+             const [imeiResult] = await conn.query(
+               'UPDATE product_imeis SET warehouse_id = ? WHERE product_id = ? AND imei = ? AND warehouse_id = ?',
+               [finalDestinationWarehouseId, productId, imei, finalSourceWarehouseId]
+             )
+             if (!imeiResult.affectedRows) {
+               throw new Error(`IMEI no disponible en la tienda origen para el producto ${productId}`)
+             }
         } else if (serial) {
-             await conn.query('UPDATE product_serials SET warehouse_id = ? WHERE product_id = ? AND serial_no = ?', [destinationWarehouseId, productId, serial])
+             const [serialResult] = await conn.query(
+               'UPDATE product_serials SET warehouse_id = ? WHERE product_id = ? AND serial_no = ? AND warehouse_id = ?',
+               [finalDestinationWarehouseId, productId, serial, finalSourceWarehouseId]
+             )
+             if (!serialResult.affectedRows) {
+               throw new Error(`Serie no disponible en la tienda origen para el producto ${productId}`)
+             }
         }
 
-        // 2. Move IN to Destination
         if (batchNo) {
-             // Check if batch exists in destination
-             const [destBatch] = await conn.query('SELECT id, quantity FROM product_batches WHERE product_id = ? AND batch_no = ? AND warehouse_id = ?', [productId, batchNo, destinationWarehouseId])
+             const [destBatch] = await conn.query('SELECT id, quantity FROM product_batches WHERE product_id = ? AND batch_no = ? AND warehouse_id = ?', [productId, batchNo, finalDestinationWarehouseId])
              
              if (destBatch.length > 0) {
                  await conn.query('UPDATE product_batches SET quantity = quantity + ? WHERE id = ?', [quantity, destBatch[0].id])
              } else {
-                 // Get expiry from source batch
-                 const [srcBatch] = await conn.query('SELECT expiry_date FROM product_batches WHERE product_id = ? AND batch_no = ? AND warehouse_id = ?', [productId, batchNo, sourceWarehouseId])
-                 
-                 // If source batch not found (maybe fully depleted in same transaction?), try to find any batch with same number
+                 const [srcBatch] = await conn.query('SELECT expiry_date FROM product_batches WHERE product_id = ? AND batch_no = ? AND warehouse_id = ?', [productId, batchNo, finalSourceWarehouseId])
                  let expiry = srcBatch.length > 0 ? srcBatch[0].expiry_date : null
-                 
+
                  if (!expiry) {
                      const [anyBatch] = await conn.query('SELECT expiry_date FROM product_batches WHERE product_id = ? AND batch_no = ? LIMIT 1', [productId, batchNo])
                      if (anyBatch.length > 0) expiry = anyBatch[0].expiry_date
@@ -166,31 +205,28 @@ router.post('/', authMiddleware, roleMiddleware(['ADMIN', 'ALMACEN']), async (re
 
                  if (expiry) {
                      await conn.query('INSERT INTO product_batches (product_id, batch_no, expiry_date, quantity, warehouse_id) VALUES (?, ?, ?, ?, ?)', 
-                         [productId, batchNo, expiry, quantity, destinationWarehouseId])
+                         [productId, batchNo, expiry, quantity, finalDestinationWarehouseId])
                  }
              }
         }
-        // IMEI/Serial are already moved by UPDATE warehouse_id above
 
-        // Register OUT movement (Source)
         await registerMovement({
           productId,
-          warehouseId: sourceWarehouseId,
+          warehouseId: finalSourceWarehouseId,
           type: 'TRANSFER_OUT',
           quantity: quantity,
           referenceId: transferId, 
-          notes: `Transferencia #${transferId} a almacén ${destinationWarehouseId} ${batchNo ? `(Lote: ${batchNo})` : ''} ${imei ? `(IMEI: ${imei})` : ''} ${serial ? `(SN: ${serial})` : ''}`,
+          notes: `Transferencia #${transferId} a almacén ${finalDestinationWarehouseId} ${batchNo ? `(Lote: ${batchNo})` : ''} ${imei ? `(IMEI: ${imei})` : ''} ${serial ? `(SN: ${serial})` : ''}`,
           userId: req.user.id
         }, conn)
         
-        // Register IN movement (Destination)
         await registerMovement({
           productId,
-          warehouseId: destinationWarehouseId,
+          warehouseId: finalDestinationWarehouseId,
           type: 'TRANSFER_IN',
           quantity: quantity,
           referenceId: transferId, 
-          notes: `Transferencia #${transferId} desde almacén ${sourceWarehouseId} ${batchNo ? `(Lote: ${batchNo})` : ''} ${imei ? `(IMEI: ${imei})` : ''} ${serial ? `(SN: ${serial})` : ''}`,
+          notes: `Transferencia #${transferId} desde almacén ${finalSourceWarehouseId} ${batchNo ? `(Lote: ${batchNo})` : ''} ${imei ? `(IMEI: ${imei})` : ''} ${serial ? `(SN: ${serial})` : ''}`,
           userId: req.user.id
         }, conn)
       }
@@ -201,8 +237,14 @@ router.post('/', authMiddleware, roleMiddleware(['ADMIN', 'ALMACEN']), async (re
     } catch (err) {
       await conn.rollback()
       console.error('Transfer Transaction Error:', err)
-      // Check for custom errors from registerMovement (e.g., insufficient stock)
       if (err.message && err.message.includes('Stock insuficiente')) {
+         return res.status(400).json({ error: err.message })
+      }
+      if (err.message && (
+        err.message.includes('lote no disponible') ||
+        err.message.includes('IMEI no disponible') ||
+        err.message.includes('Serie no disponible')
+      )) {
          return res.status(400).json({ error: err.message })
       }
       return res.status(500).json({ error: 'Error processing transfer' })

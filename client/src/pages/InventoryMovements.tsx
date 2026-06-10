@@ -351,8 +351,12 @@ export default function InventoryMovements() {
       await api.post('/inventory/adjust', adjustForm)
       alert('Ajuste registrado correctamente')
       setShowAdjust(false)
-      if (activeTab === 'products') loadProducts()
-      if (activeTab === 'history') loadHistory()
+      if (activeTab === 'products') {
+        loadProducts()
+      }
+      if (activeTab === 'history') {
+        loadHistory()
+      }
     } catch (err: any) {
       alert(err?.response?.data?.error || 'Error al registrar ajuste')
     }

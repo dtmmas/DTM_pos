@@ -1,5 +1,5 @@
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useAuthStore } from '../store/auth'
 import { useConfigStore } from '../store/config'
 import { useThemeStore } from '../store/theme'
@@ -12,40 +12,27 @@ export default function Layout() {
   const config = useConfigStore(s => s.config)
   const { mode, setMode } = useThemeStore()
   const companyName = formatCompanyName(config?.name)
-  const posWindowRef = useRef<Window | null>(null)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
   useEffect(() => {
     setMobileMenuOpen(false)
   }, [location.pathname])
 
-  const openPOSWindow = () => {
+  const openPOSWindow = (event?: React.MouseEvent<HTMLButtonElement>) => {
+    event?.preventDefault()
+    event?.stopPropagation()
+
     const posUrl = new URL('/pos', window.location.origin).toString()
-    const existingWindow = posWindowRef.current
+    const anchor = document.createElement('a')
+    anchor.href = posUrl
+    anchor.target = 'dtmpos-pos-window'
+    anchor.rel = 'noopener'
+    anchor.style.display = 'none'
+    document.body.appendChild(anchor)
+    anchor.click()
+    document.body.removeChild(anchor)
 
-    // Reuse the already opened POS window when possible.
-    if (existingWindow && !existingWindow.closed) {
-      try {
-        if (existingWindow.location.href !== posUrl) {
-          existingWindow.location.replace(posUrl)
-        }
-      } catch {
-        existingWindow.location.href = posUrl
-      }
-
-      existingWindow.focus()
-      return
-    }
-
-    const openedWindow = window.open(posUrl, 'dtmpos-pos-window')
-
-    if (!openedWindow) {
-      alert('No se pudo abrir la ventana del POS. Verifica que el navegador no este bloqueando ventanas emergentes.')
-      return
-    }
-
-    posWindowRef.current = openedWindow
-    openedWindow.focus()
+    setMobileMenuOpen(false)
   }
 
   return (

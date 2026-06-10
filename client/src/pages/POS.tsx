@@ -67,6 +67,15 @@ interface HeldSale {
   total: number
 }
 
+type CompletedSale = {
+  saleId: number
+  date: string
+  items: CartItem[]
+  total: number
+  paymentDetails: any
+  customer?: Customer
+}
+
 export default function POS() {
   const [products, setProducts] = useState<Product[]>([])
   const [loadedImages, setLoadedImages] = useState<Record<number, boolean>>({})
@@ -85,7 +94,7 @@ export default function POS() {
   const [receivedAmount, setReceivedAmount] = useState<string>('')
   const [referenceNumber, setReferenceNumber] = useState<string>('')
   const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false)
-  
+
   // Batch Selection State
   const [selectedProductForBatch, setSelectedProductForBatch] = useState<Product | null>(null)
   const [availableBatches, setAvailableBatches] = useState<{batchNo: string, expiryDate: string, quantity: number}[]>([])
@@ -94,13 +103,13 @@ export default function POS() {
   // IMEI/Serial Selection State
   const [selectedProductForImei, setSelectedProductForImei] = useState<Product | null>(null)
   const [availableImeis, setAvailableImeis] = useState<string[]>([])
-  
+
   const [selectedProductForSerial, setSelectedProductForSerial] = useState<Product | null>(null)
   const [availableSerials, setAvailableSerials] = useState<string[]>([])
 
   // Modal Search State
   const [modalSearchTerm, setModalSearchTerm] = useState('')
-  
+
   // Warehouse Stock View
   const [viewStockProduct, setViewStockProduct] = useState<Product | null>(null)
   const [warehouseStocks, setWarehouseStocks] = useState<{warehouseId: number, warehouseName: string, quantity: number}[]>([])
@@ -108,21 +117,15 @@ export default function POS() {
   const [isCashOpen, setIsCashOpen] = useState<boolean | null>(null)
 
   const user = useAuthStore(s => s.user)
+  const isAdmin = String(user?.role || '').toUpperCase() === 'ADMIN'
   // Print Settings
   const [shouldPrintTicket, setShouldPrintTicket] = useState(true)
-  const [lastSale, setLastSale] = useState<{
-    saleId: number,
-    date: string,
-    items: CartItem[],
-    total: number,
-    paymentDetails: any,
-    customer?: Customer
-  } | null>(null)
+  const [lastSale, setLastSale] = useState<CompletedSale | null>(null)
   const [heldSales, setHeldSales] = useState<HeldSale[]>([])
   const [heldSalesLoaded, setHeldSalesLoaded] = useState(false)
 
   const iframeRef = useRef<HTMLIFrameElement>(null)
-  
+
   const config = useConfigStore(s => s.config)
   const companyName = formatCompanyName(config?.name)
     const [newCustomer, setNewCustomer] = useState({
@@ -132,7 +135,7 @@ export default function POS() {
     email: '',
     address: ''
   })
-  
+
   const navigate = useNavigate()
   const heldSalesStorageKey = `dtmpos_pos_held_sales_${user?.id || 'guest'}`
 
@@ -198,10 +201,13 @@ export default function POS() {
 
   const loadData = async () => {
     try {
-      // If user has a warehouse, filter products stock by that warehouse
-      const wId = user?.warehouseId ? Number(user.warehouseId) : 1
-      const params = { params: { warehouseId: wId } }
-      
+      const wId = user?.warehouseId ? Number(user.warehouseId) : null
+      if (!isAdmin && !wId) {
+        setProducts([])
+        return
+      }
+      const params = wId ? { params: { warehouseId: wId } } : undefined
+
       const [prodRes, catRes, brandRes, deptRes, custRes] = await Promise.all([
         api.get('/products', params),
         api.get('/categories'),
@@ -243,8 +249,12 @@ export default function POS() {
         if (product.productType === 'MEDICINAL') {
             setLoadingBatches(true)
             try {
-                const wId = user?.warehouseId ? Number(user.warehouseId) : 1
-                const res = await api.get(`/products/${product.id}`, { params: { warehouseId: wId } })
+                const wId = user?.warehouseId ? Number(user.warehouseId) : null
+                if (!wId && !isAdmin) {
+                    alert('Tu usuario no tiene una tienda asignada')
+                    return
+                }
+                const res = await api.get(`/products/${product.id}`, wId ? { params: { warehouseId: wId } } : undefined)
                 if (res.data.batches && res.data.batches.length > 0) {
                     // Filter batches with positive quantity and sort by expiry date (ASC)
                     const validBatches = res.data.batches
@@ -277,13 +287,17 @@ export default function POS() {
 
     if (product.productType === 'IMEI') {
         try {
-            const wId = user?.warehouseId ? Number(user.warehouseId) : 1
-            const res = await api.get(`/products/${product.id}`, { params: { warehouseId: wId } })
+            const wId = user?.warehouseId ? Number(user.warehouseId) : null
+            if (!wId && !isAdmin) {
+                alert('Tu usuario no tiene una tienda asignada')
+                return
+            }
+            const res = await api.get(`/products/${product.id}`, wId ? { params: { warehouseId: wId } } : undefined)
             if (res.data.imeis && res.data.imeis.length > 0) {
                 // Filter out IMEIs already in cart
                 const usedImeis = cart.filter(c => c.id === product.id && c.imei).map(c => c.imei)
                 const available = res.data.imeis.filter((i: string) => !usedImeis.includes(i))
-                
+
                 if (available.length > 0) {
                     setAvailableImeis(available)
                     setSelectedProductForImei(product)
@@ -311,8 +325,12 @@ export default function POS() {
 
     if (product.productType === 'SERIAL') {
         try {
-            const wId = user?.warehouseId ? Number(user.warehouseId) : 1
-            const res = await api.get(`/products/${product.id}`, { params: { warehouseId: wId } })
+            const wId = user?.warehouseId ? Number(user.warehouseId) : null
+            if (!wId && !isAdmin) {
+                alert('Tu usuario no tiene una tienda asignada')
+                return
+            }
+            const res = await api.get(`/products/${product.id}`, wId ? { params: { warehouseId: wId } } : undefined)
             if (res.data.serials && res.data.serials.length > 0) {
                  // Filter out Serials already in cart
                  const usedSerials = cart.filter(c => c.id === product.id && c.serial).map(c => c.serial)
@@ -351,7 +369,7 @@ export default function POS() {
           alert(`Stock insuficiente. Solo hay ${product.stock} disponibles.`)
           return prev
         }
-        return prev.map(item => 
+        return prev.map(item =>
           (item.id === product.id && !item.batchNo && !item.imei && !item.serial)
             ? { ...item, quantity: item.quantity + 1 }
             : item
@@ -370,19 +388,19 @@ export default function POS() {
                   alert(`Stock insuficiente en lote. Solo hay ${batch.quantity} disponibles.`)
                   return prev
               }
-              return prev.map(item => 
+              return prev.map(item =>
                   (item.id === product.id && item.batchNo === batch.batchNo)
                   ? { ...item, quantity: newQty }
                   : item
               )
           }
-          return [...prev, { 
-              ...product, 
-              quantity: qty, 
+          return [...prev, {
+              ...product,
+              quantity: qty,
               originalPrice: product.price,
-              batchNo: batch.batchNo, 
-              expiryDate: batch.expiryDate, 
-              maxQuantity: batch.quantity 
+              batchNo: batch.batchNo,
+              expiryDate: batch.expiryDate,
+              maxQuantity: batch.quantity
           }]
       })
       setSelectedProductForBatch(null)
@@ -423,9 +441,9 @@ export default function POS() {
 
   const updatePrice = (productId: number, newPrice: number, batchNo?: string, imei?: string, serial?: string) => {
     setCart(prev => prev.map(item => {
-      const isTarget = item.id === productId && 
-                       item.batchNo === batchNo && 
-                       item.imei === imei && 
+      const isTarget = item.id === productId &&
+                       item.batchNo === batchNo &&
+                       item.imei === imei &&
                        item.serial === serial
 
       if (isTarget) {
@@ -437,15 +455,15 @@ export default function POS() {
 
   const updateQuantity = (productId: number, delta: number, batchNo?: string, imei?: string, serial?: string) => {
     setCart(prev => prev.map(item => {
-      const isTarget = item.id === productId && 
-                       item.batchNo === batchNo && 
-                       item.imei === imei && 
+      const isTarget = item.id === productId &&
+                       item.batchNo === batchNo &&
+                       item.imei === imei &&
                        item.serial === serial
 
       if (isTarget) {
         const newQty = item.quantity + delta
         if (newQty < 1) return item
-        
+
         const limit = item.maxQuantity || item.stock
         if (newQty > limit) {
           alert(`Stock insuficiente. Solo hay ${limit} disponibles.`)
@@ -462,14 +480,14 @@ export default function POS() {
     if (isNaN(newQty)) return
 
     setCart(prev => prev.map(item => {
-      const isTarget = item.id === productId && 
-                       item.batchNo === batchNo && 
-                       item.imei === imei && 
+      const isTarget = item.id === productId &&
+                       item.batchNo === batchNo &&
+                       item.imei === imei &&
                        item.serial === serial
 
       if (isTarget) {
         if (newQty < 1) return item
-        
+
         const limit = item.maxQuantity || item.stock
         if (newQty > limit) {
           alert(`Stock insuficiente. Solo hay ${limit} disponibles.`)
@@ -483,9 +501,9 @@ export default function POS() {
 
   const removeFromCart = (productId: number, batchNo?: string, imei?: string, serial?: string) => {
     setCart(prev => prev.filter(item => !(
-        item.id === productId && 
-        item.batchNo === batchNo && 
-        item.imei === imei && 
+        item.id === productId &&
+        item.batchNo === batchNo &&
+        item.imei === imei &&
         item.serial === serial
     )))
   }
@@ -499,25 +517,25 @@ export default function POS() {
 
   const filteredProducts = useMemo(() => {
     return products.filter(p => {
-      const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+      const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                             p.sku?.toLowerCase().includes(searchTerm.toLowerCase())
-      
+
       const matchesCategory = selectedCategory ? p.categoryId === selectedCategory : true
       const matchesBrand = selectedBrand ? p.brandId === selectedBrand : true
-      
+
       let matchesDepartment = true
       if (selectedDepartment) {
         const deptCategoryIds = categories
           .filter(c => c.departmentId === selectedDepartment)
           .map(c => c.id)
-        
+
         if (p.categoryId) {
           matchesDepartment = deptCategoryIds.includes(p.categoryId)
         } else {
           matchesDepartment = false
         }
       }
-      
+
       return matchesSearch && matchesCategory && matchesBrand && matchesDepartment
     })
   }, [products, searchTerm, selectedCategory, selectedBrand, selectedDepartment, categories])
@@ -532,6 +550,171 @@ export default function POS() {
     setPaymentMethod('CASH')
     setReceivedAmount('')
     setReferenceNumber('')
+  }
+
+  const downloadTicketPdf = (blobUrl: string, saleId: number) => {
+    const link = document.createElement('a')
+    link.href = blobUrl
+    link.download = `ticket-venta-${saleId}.pdf`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.setTimeout(() => URL.revokeObjectURL(blobUrl), 1000)
+  }
+
+  const escapeHtml = (value: unknown) =>
+    String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;')
+
+  const buildPrintableTicketHtml = (
+    saleId: number,
+    date: string,
+    items: CartItem[],
+    totalAmount: number,
+    paymentDetails?: any,
+    customer?: Customer
+  ) => {
+    const paymentLines: string[] = []
+    if (paymentDetails?.paymentMethod === 'CASH') {
+      paymentLines.push(`Efectivo: ${Number(paymentDetails.receivedAmount || 0).toFixed(2)}`)
+      paymentLines.push(`Cambio: ${Number(paymentDetails.changeAmount || 0).toFixed(2)}`)
+    } else if (paymentDetails?.paymentMethod === 'CARD') {
+      paymentLines.push(`Tarjeta Ref: ${paymentDetails.referenceNumber || ''}`)
+    } else if (paymentDetails?.paymentMethod === 'DEPOSIT') {
+      paymentLines.push(`Deposito Ref: ${paymentDetails.referenceNumber || ''}`)
+    } else if (paymentDetails?.paymentMethod === 'CREDIT') {
+      paymentLines.push('Venta a credito')
+    }
+
+    const itemsHtml = items
+      .map(item => {
+        const lineTotal = item.price * item.quantity
+        return `
+          <div class="row item">
+            <div class="name">${escapeHtml(item.name)}</div>
+            <div class="qty">${escapeHtml(item.quantity)} x ${escapeHtml(item.price.toFixed(2))}</div>
+            <div class="line-total">${escapeHtml(lineTotal.toFixed(2))}</div>
+          </div>
+        `
+      })
+      .join('')
+
+    const paymentHtml = paymentLines
+      .map(line => `<div class="payment-line">${escapeHtml(line)}</div>`)
+      .join('')
+
+    return `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Ticket Venta ${escapeHtml(saleId)}</title>
+    <style>
+      @page { size: 80mm auto; margin: 4mm; }
+      html, body { margin: 0; padding: 0; background: #fff; }
+      body { font-family: Arial, sans-serif; font-size: 11px; color: #000; }
+      .ticket { width: 72mm; margin: 0 auto; padding: 2mm 0; }
+      .center { text-align: center; }
+      .muted { margin-top: 2mm; }
+      .divider { border-top: 1px dashed #000; margin: 3mm 0; }
+      .row { display: flex; gap: 2mm; align-items: flex-start; }
+      .item { margin-bottom: 2mm; }
+      .name { flex: 1; word-break: break-word; }
+      .qty, .line-total { white-space: nowrap; }
+      .line-total { margin-left: auto; }
+      .total { font-weight: 700; font-size: 12px; text-align: right; }
+      .payment-line { margin-top: 1mm; }
+    </style>
+  </head>
+  <body>
+    <div class="ticket">
+      <div class="center"><strong>${escapeHtml(companyName)}</strong></div>
+      <div class="center muted">Fecha: ${escapeHtml(date)}</div>
+      <div class="center muted">Venta #${escapeHtml(saleId)}</div>
+      ${customer ? `<div class="center muted">Cliente: ${escapeHtml(customer.name)}</div>` : ''}
+      <div class="divider"></div>
+      ${itemsHtml}
+      <div class="divider"></div>
+      <div class="total">TOTAL: ${escapeHtml(config?.currency || '')} ${escapeHtml(totalAmount.toFixed(2))}</div>
+      ${paymentHtml ? `<div class="divider"></div>${paymentHtml}` : ''}
+    </div>
+    <script>
+      window.onload = function () {
+        setTimeout(function () {
+          try {
+            window.focus();
+            window.print();
+          } catch (error) {}
+        }, 150);
+      };
+    </script>
+  </body>
+</html>`
+  }
+
+  const printTicketHtml = (
+    blobUrl: string,
+    saleId: number,
+    date: string,
+    items: CartItem[],
+    totalAmount: number,
+    paymentDetails?: any,
+    customer?: Customer,
+    printWindow?: Window | null
+  ) => {
+    const printableHtml = buildPrintableTicketHtml(saleId, date, items, totalAmount, paymentDetails, customer)
+
+    if (printWindow && !printWindow.closed) {
+      try {
+        printWindow.document.open()
+        printWindow.document.write(printableHtml)
+        printWindow.document.close()
+        window.setTimeout(() => URL.revokeObjectURL(blobUrl), 60000)
+        return
+      } catch (error) {
+        try {
+          printWindow.close()
+        } catch {}
+      }
+    }
+
+    const iframe = iframeRef.current
+    const frameWindow = iframe?.contentWindow
+    const frameDocument = frameWindow?.document
+
+    if (!iframe || !frameWindow || !frameDocument) {
+      downloadTicketPdf(blobUrl, saleId)
+      return
+    }
+
+    try {
+      frameDocument.open()
+      frameDocument.write(printableHtml)
+      frameDocument.close()
+
+
+      window.setTimeout(() => {
+        try {
+          frameWindow.focus()
+          frameWindow.print()
+        } catch (error) {
+          downloadTicketPdf(blobUrl, saleId)
+          return
+        }
+      }, 300)
+
+      window.setTimeout(() => {
+        try {
+          iframe.src = 'about:blank'
+        } catch {}
+        URL.revokeObjectURL(blobUrl)
+      }, 60000)
+    } catch (error) {
+      downloadTicketPdf(blobUrl, saleId)
+    }
   }
 
   const buildHeldSale = (): HeldSale => {
@@ -595,13 +778,13 @@ export default function POS() {
     alert(`Venta retomada: ${heldSale.name}`)
   }
 
-  const generateTicket = (saleId: number, date: string, items: CartItem[], totalAmount: number, paymentDetails?: any, customer?: Customer) => {
+  const generateTicket = (saleId: number, date: string, items: CartItem[], totalAmount: number, paymentDetails?: any, customer?: Customer, printWindow?: Window | null) => {
     // Calcular altura dinámica
     const headerHeight = 40
     const itemHeight = 5
     const footerHeight = 40
     const totalHeight = headerHeight + (items.length * itemHeight) + footerHeight
-    
+
     const doc = new jsPDF({
       orientation: 'portrait',
       unit: 'mm',
@@ -613,13 +796,13 @@ export default function POS() {
     doc.setFontSize(8)
     doc.text(`Fecha: ${date}`, 5, 15)
     doc.text(`Venta #${saleId}`, 5, 20)
-    
+
     if (customer) {
       doc.text(`Cliente: ${customer.name}`, 5, 25)
     }
 
     doc.line(5, 30, 75, 30)
-    
+
     let y = 35
     items.forEach(item => {
       const lineTotal = item.price * item.quantity
@@ -633,7 +816,7 @@ export default function POS() {
     y += 5
     doc.setFontSize(10)
     doc.text(`TOTAL: ${config?.currency} ${totalAmount.toFixed(2)}`, 75, y, { align: 'right' })
-    
+
     y += 5
     doc.setFontSize(8)
     if (paymentDetails) {
@@ -653,18 +836,13 @@ export default function POS() {
     // Imprimir usando iframe para evitar bloqueo de popups
     const blob = doc.output('blob')
     const blobUrl = URL.createObjectURL(blob)
-    
-    if (iframeRef.current) {
-      iframeRef.current.src = blobUrl
-      iframeRef.current.onload = () => {
-        if (iframeRef.current?.contentWindow) {
-          iframeRef.current.contentWindow.print()
-        }
-      }
-    } else {
-      // Fallback
-      window.open(blobUrl, '_blank')
+
+    if (shouldPrintTicket) {
+      printTicketHtml(blobUrl, saleId, date, items, totalAmount, paymentDetails, customer, printWindow)
+      return
     }
+
+    downloadTicketPdf(blobUrl, saleId)
   }
 
   const handleCheckout = async () => {
@@ -688,6 +866,14 @@ export default function POS() {
          alert('Por favor ingrese el número de referencia')
          return
        }
+    }
+
+    let printWindow: Window | null = null
+    if (shouldPrintTicket) {
+      try {
+        printWindow = window.open('', `dtmpos-print-${Date.now()}`, 'width=420,height=640,left=120,top=120')
+      } catch (error) {
+      }
     }
 
     setLoading(true)
@@ -726,17 +912,15 @@ export default function POS() {
         changeAmount: paymentMethod === 'CASH' ? change : 0,
         referenceNumber: (paymentMethod === 'CARD' || paymentMethod === 'DEPOSIT') ? referenceNumber : null
       })
-      
+
       if (res.data.success) {
-        alert('Venta realizada con éxito')
-        
-        const saleData = {
+        const saleData: CompletedSale = {
           saleId: res.data.saleId,
           date: formatDateTime(new Date()),
           items: [...cart],
           total: total,
           paymentDetails: {
-             paymentMethod, 
+             paymentMethod,
              receivedAmount: paymentMethod === 'CASH' ? received : 0,
              changeAmount: paymentMethod === 'CASH' ? change : 0,
              referenceNumber: (paymentMethod === 'CARD' || paymentMethod === 'DEPOSIT') ? referenceNumber : null
@@ -745,19 +929,20 @@ export default function POS() {
         }
 
         setLastSale(saleData)
-
         if (shouldPrintTicket) {
-            generateTicket(
-              saleData.saleId, 
-              saleData.date, 
-              saleData.items, 
-              saleData.total, 
-              saleData.paymentDetails, 
-              saleData.customer
-            )
+          generateTicket(
+            saleData.saleId,
+            saleData.date,
+            saleData.items,
+            saleData.total,
+            saleData.paymentDetails,
+            saleData.customer,
+            printWindow
+          )
         }
-
         resetCurrentSale()
+        void loadData()
+        return
       }
     } catch (err) {
       console.error(err)
@@ -771,6 +956,11 @@ export default function POS() {
       } else {
         alert('Error al procesar la venta')
       }
+      if (printWindow && !printWindow.closed) {
+        try {
+          printWindow.close()
+        } catch {}
+      }
     } finally {
       setLoading(false)
     }
@@ -779,19 +969,19 @@ export default function POS() {
   const handleCreateCustomer = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!newCustomer.name) return alert('El nombre es obligatorio')
-    
+
     setLoading(true)
     try {
       const res = await api.post('/customers', newCustomer)
       const createdCustomer = res.data
-      
+
       // Refresh customers list
       const custRes = await api.get('/customers')
       setCustomers(custRes.data)
-      
+
       // Select the new customer
       setSelectedCustomer(createdCustomer.id)
-      
+
       // Reset and close modal
       setNewCustomer({ name: '', document: '', phone: '', email: '', address: '' })
       setIsCustomerModalOpen(false)
@@ -832,14 +1022,14 @@ export default function POS() {
         {/* Header: Search & Filter */}
         <div className="pos-filters">
           <div style={{ position: 'relative', flex: '1 1 250px' }}>
-             <svg 
-               width="20" 
-               height="20" 
-               viewBox="0 0 24 24" 
-               fill="none" 
-               stroke="currentColor" 
-               strokeWidth="2" 
-               strokeLinecap="round" 
+             <svg
+               width="20"
+               height="20"
+               viewBox="0 0 24 24"
+               fill="none"
+               stroke="currentColor"
+               strokeWidth="2"
+               strokeLinecap="round"
                strokeLinejoin="round"
                style={{
                  position: 'absolute',
@@ -852,14 +1042,14 @@ export default function POS() {
                <circle cx="11" cy="11" r="8"></circle>
                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
              </svg>
-             <input 
-               type="text" 
-               placeholder="Buscar productos..." 
+             <input
+               type="text"
+               placeholder="Buscar productos..."
                value={searchTerm}
                onChange={e => setSearchTerm(e.target.value)}
-               style={{ 
-                 width: '100%', 
-                 padding: '10px 10px 10px 40px', 
+               style={{
+                 width: '100%',
+                 padding: '10px 10px 10px 40px',
                  border: '1px solid var(--border)',
                  borderRadius: 8,
                  fontSize: '1rem',
@@ -872,17 +1062,17 @@ export default function POS() {
                onBlur={(e) => e.target.style.borderColor = 'var(--border)'}
              />
           </div>
-          
+
           <div style={{ position: 'relative', flex: '1 1 150px' }}>
-            <select 
-              value={selectedDepartment || ''} 
+            <select
+              value={selectedDepartment || ''}
               onChange={e => {
                 setSelectedDepartment(e.target.value ? Number(e.target.value) : null)
                 setSelectedCategory(null)
               }}
-              style={{ 
-                width: '100%', 
-                padding: '10px', 
+              style={{
+                width: '100%',
+                padding: '10px',
                 border: '1px solid var(--border)',
                 borderRadius: 8,
                 fontSize: '1rem',
@@ -905,12 +1095,12 @@ export default function POS() {
           </div>
 
           <div style={{ position: 'relative', flex: '1 1 150px' }}>
-            <select 
-              value={selectedCategory || ''} 
+            <select
+              value={selectedCategory || ''}
               onChange={e => setSelectedCategory(e.target.value ? Number(e.target.value) : null)}
-              style={{ 
-                width: '100%', 
-                padding: '10px', 
+              style={{
+                width: '100%',
+                padding: '10px',
                 border: '1px solid var(--border)',
                 borderRadius: 8,
                 fontSize: '1rem',
@@ -935,12 +1125,12 @@ export default function POS() {
           </div>
 
           <div style={{ position: 'relative', flex: '1 1 150px' }}>
-            <select 
-              value={selectedBrand || ''} 
+            <select
+              value={selectedBrand || ''}
               onChange={e => setSelectedBrand(e.target.value ? Number(e.target.value) : null)}
-              style={{ 
-                width: '100%', 
-                padding: '10px', 
+              style={{
+                width: '100%',
+                padding: '10px',
                 border: '1px solid var(--border)',
                 borderRadius: 8,
                 fontSize: '1rem',
@@ -962,7 +1152,7 @@ export default function POS() {
             </select>
           </div>
 
-          <button 
+          <button
             onClick={clearFilters}
             className="icon-btn danger"
             style={{
@@ -982,13 +1172,13 @@ export default function POS() {
         {/* Grid */}
         <div className="pos-grid">
           {filteredProducts.map(p => (
-            <div 
-              key={p.id} 
+            <div
+              key={p.id}
               onClick={() => addToCart(p)}
-              style={{ 
-                border: '1px solid var(--border)', 
-                borderRadius: 16, 
-                padding: 16, 
+              style={{
+                border: '1px solid var(--border)',
+                borderRadius: 16,
+                padding: 16,
                 cursor: 'pointer',
                 display: 'flex',
                 flexDirection: 'column',
@@ -1034,12 +1224,12 @@ export default function POS() {
                 )}
               </div>
               <div>
-                <div 
-                  style={{ 
-                    fontWeight: 600, 
-                    fontSize: '1rem', 
-                    marginBottom: 4, 
-                    color: 'var(--text)', 
+                <div
+                  style={{
+                    fontWeight: 600,
+                    fontSize: '1rem',
+                    marginBottom: 4,
+                    color: 'var(--text)',
                     lineHeight: 1.3,
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
@@ -1094,12 +1284,12 @@ export default function POS() {
             <button onClick={resetCurrentSale} style={{color: '#ef4444', background:'none', border:'none', cursor:'pointer', fontWeight: 600}}>Vaciar</button>
           </div>
         </div>
-        
+
         {/* Customer Selection */}
         <div style={{ padding: '8px 16px', borderBottom: '1px solid var(--border)', backgroundColor: 'var(--bg)', display: 'flex', gap: 8 }}>
-           <select 
-             style={{ 
-               flex: 1, 
+           <select
+             style={{
+               flex: 1,
                padding: 8,
                borderRadius: 6,
                border: '1px solid var(--border)',
@@ -1114,7 +1304,7 @@ export default function POS() {
                <option key={c.id} value={c.id}>{c.name}</option>
              ))}
            </select>
-           <button 
+           <button
              onClick={() => setIsCustomerModalOpen(true)}
              className="icon-btn primary"
              style={{
@@ -1249,14 +1439,14 @@ export default function POS() {
                   )}
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <button 
+                  <button
                     onClick={() => updateQuantity(item.id, -1, item.batchNo, item.imei, item.serial)}
-                    style={{ 
-                      width: 28, 
-                      height: 28, 
-                      borderRadius: '50%', 
-                      border: '1px solid var(--border)', 
-                      background: 'var(--surface)', 
+                    style={{
+                      width: 28,
+                      height: 28,
+                      borderRadius: '50%',
+                      border: '1px solid var(--border)',
+                      background: 'var(--surface)',
                       cursor: 'pointer',
                       display: 'flex',
                       alignItems: 'center',
@@ -1274,11 +1464,11 @@ export default function POS() {
                     max={item.maxQuantity || item.stock}
                     value={item.quantity}
                     onChange={(e) => handleQuantityChange(item.id, e.target.value, item.batchNo, item.imei, item.serial)}
-                    style={{ 
-                      width: 40, 
+                    style={{
+                      width: 40,
                       height: 28,
-                      textAlign: 'center', 
-                      border: 'none', 
+                      textAlign: 'center',
+                      border: 'none',
                       background: 'transparent',
                       fontWeight: 'bold',
                       fontSize: '1rem',
@@ -1287,14 +1477,14 @@ export default function POS() {
                       color: 'var(--text)'
                     }}
                   />
-                  <button 
+                  <button
                     onClick={() => updateQuantity(item.id, 1, item.batchNo, item.imei, item.serial)}
-                    style={{ 
-                      width: 28, 
-                      height: 28, 
-                      borderRadius: '50%', 
-                      border: '1px solid var(--border)', 
-                      background: 'var(--surface)', 
+                    style={{
+                      width: 28,
+                      height: 28,
+                      borderRadius: '50%',
+                      border: '1px solid var(--border)',
+                      background: 'var(--surface)',
                       cursor: 'pointer',
                       display: 'flex',
                       alignItems: 'center',
@@ -1306,10 +1496,10 @@ export default function POS() {
                       <path d="M6 0V12M0 6H12" stroke="currentColor" strokeWidth="2"/>
                     </svg>
                   </button>
-                  <button 
+                  <button
                     onClick={() => removeFromCart(item.id, item.batchNo, item.imei, item.serial)}
                     className="icon-btn danger"
-                    style={{ 
+                    style={{
                       marginLeft: 8,
                       width: 32,
                       height: 32,
@@ -1332,7 +1522,7 @@ export default function POS() {
             <span>Total:</span>
             <span>{config?.currency} {total.toFixed(2)}</span>
           </div>
-          
+
           <div style={{ marginBottom: 16 }}>
             <label style={{ display: 'block', marginBottom: 8, fontWeight: 'bold', color: 'var(--muted)' }}>Método de Pago:</label>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
@@ -1393,12 +1583,12 @@ export default function POS() {
                 📝 Crédito
               </button>
             </div>
-            
+
             <div style={{ marginTop: 16 }}>
               {paymentMethod === 'CASH' && (
                 <div>
                   <label style={{ display: 'block', marginBottom: 8, fontWeight: 'bold', color: 'var(--muted)' }}>Cantidad Recibida:</label>
-                  <input 
+                  <input
                     type="number"
                     min="0"
                     step="0.01"
@@ -1424,7 +1614,7 @@ export default function POS() {
               {(paymentMethod === 'CARD' || paymentMethod === 'DEPOSIT') && (
                 <div>
                   <label style={{ display: 'block', marginBottom: 8, fontWeight: 'bold', color: 'var(--muted)' }}>Número de Referencia:</label>
-                  <input 
+                  <input
                     type="text"
                     value={referenceNumber}
                     onChange={e => setReferenceNumber(e.target.value)}
@@ -1444,66 +1634,55 @@ export default function POS() {
             </div>
           </div>
 
-          <div style={{ marginBottom: 16 }}>
-             <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', userSelect: 'none' }}>
-                <input 
-                   type="checkbox" 
-                   checked={shouldPrintTicket} 
-                   onChange={e => setShouldPrintTicket(e.target.checked)}
-                   style={{ width: 18, height: 18, cursor: 'pointer' }}
-                />
-                <span style={{ fontSize: '1rem', color: 'var(--text)' }}>Imprimir Ticket al finalizar</span>
-             </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, fontSize: '0.95rem', color: 'var(--text)', cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={shouldPrintTicket}
+              onChange={e => setShouldPrintTicket(e.target.checked)}
+            />
+            Imprimir ticket automaticamente al completar la venta
+          </label>
+
+          <div style={{ marginBottom: 16, fontSize: '0.92rem', color: 'var(--muted)' }}>
+            Al pagar se abre el dialogo de impresion. Si el entorno lo bloquea, el sistema descarga el PDF del ticket como respaldo.
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <button 
+            <button
               onClick={handleCheckout}
               disabled={cart.length === 0 || loading}
-              style={{ 
-                width: '100%', 
-                padding: 16, 
-                backgroundColor: '#16a34a', 
-                color: 'white', 
-                border: 'none', 
-                borderRadius: 6, 
+              style={{
+                width: '100%',
+                padding: 16,
+                backgroundColor: '#16a34a',
+                color: 'white',
+                border: 'none',
+                borderRadius: 6,
                 fontSize: '1.1rem',
                 fontWeight: 'bold',
                 cursor: cart.length === 0 || loading ? 'not-allowed' : 'pointer',
                 opacity: cart.length === 0 || loading ? 0.7 : 1
               }}
             >
-              {loading ? 'Procesando...' : (shouldPrintTicket ? 'Pagar e Imprimir' : 'Pagar')}
+              {loading ? 'Procesando...' : 'Pagar'}
             </button>
 
             {lastSale && (
-                <button
-                  onClick={() => generateTicket(
-                      lastSale.saleId, 
-                      lastSale.date, 
-                      lastSale.items, 
-                      lastSale.total, 
-                      lastSale.paymentDetails, 
-                      lastSale.customer
-                  )}
+                <div
                   style={{
-                      width: '100%',
-                      padding: 12,
-                      backgroundColor: 'transparent',
-                      color: 'var(--text)',
-                      border: '1px solid var(--border)',
-                      borderRadius: 6,
-                      fontSize: '1rem',
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: 8
+                    width: '100%',
+                    padding: 12,
+                    backgroundColor: 'transparent',
+                    color: 'var(--muted)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 6,
+                    fontSize: '0.95rem',
+                    fontWeight: 600,
+                    textAlign: 'center'
                   }}
                 >
-                   <span>🖨️</span> Reimprimir Último Ticket (#{lastSale.saleId})
-                </button>
+                   Ultima venta registrada: #{lastSale.saleId}
+                </div>
             )}
           </div>
         </div>
@@ -1541,12 +1720,12 @@ export default function POS() {
                     required
                     value={newCustomer.name}
                     onChange={e => setNewCustomer({ ...newCustomer, name: e.target.value })}
-                    style={{ 
-                      width: '100%', 
-                      padding: 10, 
-                      borderRadius: 8, 
-                      border: '1px solid var(--border)', 
-                      background: 'var(--bg)', 
+                    style={{
+                      width: '100%',
+                      padding: 10,
+                      borderRadius: 8,
+                      border: '1px solid var(--border)',
+                      background: 'var(--bg)',
                       color: 'var(--text)',
                       outline: 'none'
                     }}
@@ -1557,12 +1736,12 @@ export default function POS() {
                   <input
                     value={newCustomer.document}
                     onChange={e => setNewCustomer({ ...newCustomer, document: e.target.value })}
-                    style={{ 
-                      width: '100%', 
-                      padding: 10, 
-                      borderRadius: 8, 
-                      border: '1px solid var(--border)', 
-                      background: 'var(--bg)', 
+                    style={{
+                      width: '100%',
+                      padding: 10,
+                      borderRadius: 8,
+                      border: '1px solid var(--border)',
+                      background: 'var(--bg)',
                       color: 'var(--text)',
                       outline: 'none'
                     }}
@@ -1573,12 +1752,12 @@ export default function POS() {
                   <input
                     value={newCustomer.phone}
                     onChange={e => setNewCustomer({ ...newCustomer, phone: e.target.value })}
-                    style={{ 
-                      width: '100%', 
-                      padding: 10, 
-                      borderRadius: 8, 
-                      border: '1px solid var(--border)', 
-                      background: 'var(--bg)', 
+                    style={{
+                      width: '100%',
+                      padding: 10,
+                      borderRadius: 8,
+                      border: '1px solid var(--border)',
+                      background: 'var(--bg)',
                       color: 'var(--text)',
                       outline: 'none'
                     }}
@@ -1590,12 +1769,12 @@ export default function POS() {
                     type="email"
                     value={newCustomer.email}
                     onChange={e => setNewCustomer({ ...newCustomer, email: e.target.value })}
-                    style={{ 
-                      width: '100%', 
-                      padding: 10, 
-                      borderRadius: 8, 
-                      border: '1px solid var(--border)', 
-                      background: 'var(--bg)', 
+                    style={{
+                      width: '100%',
+                      padding: 10,
+                      borderRadius: 8,
+                      border: '1px solid var(--border)',
+                      background: 'var(--bg)',
                       color: 'var(--text)',
                       outline: 'none'
                     }}
@@ -1606,12 +1785,12 @@ export default function POS() {
                   <input
                     value={newCustomer.address}
                     onChange={e => setNewCustomer({ ...newCustomer, address: e.target.value })}
-                    style={{ 
-                      width: '100%', 
-                      padding: 10, 
-                      borderRadius: 8, 
-                      border: '1px solid var(--border)', 
-                      background: 'var(--bg)', 
+                    style={{
+                      width: '100%',
+                      padding: 10,
+                      borderRadius: 8,
+                      border: '1px solid var(--border)',
+                      background: 'var(--bg)',
                       color: 'var(--text)',
                       outline: 'none'
                     }}
@@ -1619,34 +1798,34 @@ export default function POS() {
                 </div>
               </div>
               <div className="modal-footer" style={{ marginTop: 24, display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
-                <button 
-                  type="button" 
+                <button
+                  type="button"
                   onClick={() => setIsCustomerModalOpen(false)}
                   disabled={loading}
-                  style={{ 
-                    padding: '10px 16px', 
-                    background: 'transparent', 
-                    border: '1px solid var(--border)', 
-                    borderRadius: 8, 
+                  style={{
+                    padding: '10px 16px',
+                    background: 'transparent',
+                    border: '1px solid var(--border)',
+                    borderRadius: 8,
                     color: 'var(--text)',
-                    cursor: loading ? 'not-allowed' : 'pointer', 
-                    opacity: loading ? 0.7 : 1 
+                    cursor: loading ? 'not-allowed' : 'pointer',
+                    opacity: loading ? 0.7 : 1
                   }}
                 >
                   Cancelar
                 </button>
-                <button 
-                  type="submit" 
+                <button
+                  type="submit"
                   disabled={loading}
-                  style={{ 
-                    padding: '10px 16px', 
-                    backgroundColor: 'var(--accent)', 
-                    color: '#052b35', 
-                    border: 'none', 
-                    borderRadius: 8, 
-                    fontWeight: 700, 
-                    cursor: loading ? 'not-allowed' : 'pointer', 
-                    opacity: loading ? 0.7 : 1 
+                  style={{
+                    padding: '10px 16px',
+                    backgroundColor: 'var(--accent)',
+                    color: '#052b35',
+                    border: 'none',
+                    borderRadius: 8,
+                    fontWeight: 700,
+                    cursor: loading ? 'not-allowed' : 'pointer',
+                    opacity: loading ? 0.7 : 1
                   }}
                 >
                   {loading ? 'Guardando...' : 'Guardar y Seleccionar'}
@@ -1662,15 +1841,15 @@ export default function POS() {
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1100 }}>
           <div style={{ background: 'var(--modal)', padding: 20, borderRadius: 12, width: 500, maxHeight: '80vh', display: 'flex', flexDirection: 'column', boxShadow: '0 4px 20px rgba(0,0,0,0.2)' }}>
             <h3 style={{ marginTop: 0, marginBottom: 15 }}>Seleccionar Lote para {selectedProductForBatch.name}</h3>
-            
-            <input 
-              type="text" 
-              placeholder="Buscar lote..." 
+
+            <input
+              type="text"
+              placeholder="Buscar lote..."
               value={modalSearchTerm}
               onChange={e => setModalSearchTerm(e.target.value)}
-              style={{ 
-                width: '100%', 
-                padding: '10px', 
+              style={{
+                width: '100%',
+                padding: '10px',
                 marginBottom: 15,
                 border: '1px solid var(--border)',
                 borderRadius: 8,
@@ -1706,12 +1885,12 @@ export default function POS() {
                                    <td style={{ padding: 8 }}>
                                        {b.batchNo}
                                        {isBest && (
-                                           <span style={{ 
-                                               fontSize: '0.7em', 
-                                               backgroundColor: '#eab308', 
-                                               color: '#000', 
-                                               padding: '2px 6px', 
-                                               borderRadius: 4, 
+                                           <span style={{
+                                               fontSize: '0.7em',
+                                               backgroundColor: '#eab308',
+                                               color: '#000',
+                                               padding: '2px 6px',
+                                               borderRadius: 4,
                                                marginLeft: 8,
                                                fontWeight: 'bold'
                                            }}>
@@ -1722,7 +1901,7 @@ export default function POS() {
                                    <td style={{ padding: 8 }}>{b.expiryDate}</td>
                                    <td style={{ padding: 8, textAlign: 'right' }}>{b.quantity}</td>
                                    <td style={{ padding: 8, textAlign: 'right' }}>
-                                       <button 
+                                       <button
                                            className="btn-primary"
                                            onClick={() => {
                                                addBatchToCart(selectedProductForBatch, b, 1)
@@ -1740,7 +1919,7 @@ export default function POS() {
                )}
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                <button 
+                <button
                     onClick={() => setSelectedProductForBatch(null)}
                     style={{ padding: '8px 16px', borderRadius: 6, border: '1px solid var(--border)', background: 'transparent', cursor: 'pointer', color: 'var(--text)' }}
                 >
@@ -1756,15 +1935,15 @@ export default function POS() {
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1100 }}>
           <div style={{ background: 'var(--modal)', padding: 20, borderRadius: 12, width: 400, maxHeight: '80vh', display: 'flex', flexDirection: 'column', boxShadow: '0 4px 20px rgba(0,0,0,0.2)' }}>
             <h3 style={{ marginTop: 0, marginBottom: 15 }}>Seleccionar IMEI para {selectedProductForImei.name}</h3>
-            
-            <input 
-              type="text" 
-              placeholder="Buscar IMEI..." 
+
+            <input
+              type="text"
+              placeholder="Buscar IMEI..."
               value={modalSearchTerm}
               onChange={e => setModalSearchTerm(e.target.value)}
-              style={{ 
-                width: '100%', 
-                padding: '10px', 
+              style={{
+                width: '100%',
+                padding: '10px',
                 marginBottom: 15,
                 border: '1px solid var(--border)',
                 borderRadius: 8,
@@ -1797,7 +1976,7 @@ export default function POS() {
                )}
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                <button 
+                <button
                     onClick={() => setSelectedProductForImei(null)}
                     style={{ padding: '8px 16px', borderRadius: 6, border: '1px solid var(--border)', background: 'transparent', cursor: 'pointer', color: 'var(--text)' }}
                 >
@@ -1813,15 +1992,15 @@ export default function POS() {
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1100 }}>
           <div style={{ background: 'var(--modal)', padding: 20, borderRadius: 12, width: 400, maxHeight: '80vh', display: 'flex', flexDirection: 'column', boxShadow: '0 4px 20px rgba(0,0,0,0.2)' }}>
             <h3 style={{ marginTop: 0, marginBottom: 15 }}>Seleccionar Serial para {selectedProductForSerial.name}</h3>
-            
-            <input 
-              type="text" 
-              placeholder="Buscar Serial..." 
+
+            <input
+              type="text"
+              placeholder="Buscar Serial..."
               value={modalSearchTerm}
               onChange={e => setModalSearchTerm(e.target.value)}
-              style={{ 
-                width: '100%', 
-                padding: '10px', 
+              style={{
+                width: '100%',
+                padding: '10px',
                 marginBottom: 15,
                 border: '1px solid var(--border)',
                 borderRadius: 8,
@@ -1854,7 +2033,7 @@ export default function POS() {
                )}
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                <button 
+                <button
                     onClick={() => setSelectedProductForSerial(null)}
                     style={{ padding: '8px 16px', borderRadius: 6, border: '1px solid var(--border)', background: 'transparent', cursor: 'pointer', color: 'var(--text)' }}
                 >
@@ -1871,7 +2050,7 @@ export default function POS() {
           <div style={{ background: 'var(--modal)', padding: 24, borderRadius: 16, width: 400, maxHeight: '80vh', display: 'flex', flexDirection: 'column', boxShadow: '0 10px 25px rgba(0,0,0,0.2)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
               <h3 style={{ margin: 0, color: 'var(--text)' }}>Existencias por Almacén</h3>
-              <button 
+              <button
                 onClick={() => setViewStockProduct(null)}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}
               >
@@ -1881,7 +2060,7 @@ export default function POS() {
                 </svg>
               </button>
             </div>
-            
+
             <div style={{ marginBottom: 16 }}>
               <div style={{ fontWeight: 600, color: 'var(--text)' }}>{viewStockProduct.name}</div>
               <div style={{ fontSize: '0.9rem', color: 'var(--muted)' }}>SKU: {viewStockProduct.sku || 'N/A'}</div>
@@ -1902,7 +2081,7 @@ export default function POS() {
                     {warehouseStocks.map((ws: any, idx) => (
                       <tr key={idx} style={{ borderBottom: '1px solid var(--border)' }}>
                         <td style={{ padding: '12px 4px', color: 'var(--text)' }}>
-                          {ws.warehouseName} 
+                          {ws.warehouseName}
                           {String(user?.warehouseId) === String(ws.warehouseId) ? ' (Actual)' : ''}
                         </td>
                         <td style={{ padding: '12px 4px', textAlign: 'right', fontWeight: 600, color: 'var(--text)' }}>
@@ -1939,7 +2118,7 @@ export default function POS() {
             <p style={{ color: 'var(--muted)', marginBottom: 25, lineHeight: 1.5 }}>
               Debes realizar la apertura de caja antes de poder realizar ventas.
             </p>
-            <button 
+            <button
               onClick={() => navigate('/cash-register')}
               className="btn-primary"
               style={{ width: '100%', padding: '12px 0', fontSize: '1.1rem' }}
@@ -1951,15 +2130,15 @@ export default function POS() {
       )}
 
       {/* Hidden iframe for printing */}
-      <iframe 
-        ref={iframeRef} 
-        style={{ 
-          position: 'absolute', 
-          width: '0px', 
-          height: '0px', 
+      <iframe
+        ref={iframeRef}
+        style={{
+          position: 'absolute',
+          width: '0px',
+          height: '0px',
           border: 'none',
           visibility: 'hidden'
-        }} 
+        }}
       />
     </div>
   )

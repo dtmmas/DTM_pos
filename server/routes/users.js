@@ -47,7 +47,7 @@ router.post('/', permissionMiddleware('users:write'), async (req, res) => {
   try {
     const pool = await getPool()
     const hash = await bcrypt.hash(password, 10)
-    const wId = warehouse_id ? Number(warehouse_id) : 1
+    const wId = warehouse_id ? Number(warehouse_id) : null
     const [resUser] = await pool.query(
       'INSERT INTO users (name, email, password, role_id, warehouse_id, active) VALUES (?, ?, ?, ?, ?, 1)',
       [name, email, hash, role_id, wId]
@@ -72,7 +72,7 @@ router.put('/:id', permissionMiddleware('users:write'), async (req, res) => {
     if (name) { updates.push('name = ?'); values.push(name) }
     if (email) { updates.push('email = ?'); values.push(email) }
     if (role_id) { updates.push('role_id = ?'); values.push(role_id) }
-    if (warehouse_id) { updates.push('warehouse_id = ?'); values.push(warehouse_id) }
+    if (warehouse_id !== undefined) { updates.push('warehouse_id = ?'); values.push(warehouse_id ? Number(warehouse_id) : null) }
     if (active !== undefined) { updates.push('active = ?'); values.push(active ? 1 : 0) }
     if (password) {
       const hash = await bcrypt.hash(password, 10)

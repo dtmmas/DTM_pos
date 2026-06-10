@@ -2,11 +2,13 @@ import jwt from 'jsonwebtoken'
 
 export function signToken(user) {
   const secret = process.env.JWT_SECRET || 'devsecret'
-  // Include role in token for backward compatibility and permissions if needed (but keep token small)
-  // We'll trust the database for permissions on each request if we want real-time revocation,
-  // but for stateless JWT, we can include permissions or just role.
-  // Let's include role. Permissions might be too big.
-  return jwt.sign({ id: user.id, role: user.role, name: user.name }, secret, { expiresIn: '8h' })
+  return jwt.sign({
+    id: user.id,
+    role: user.role,
+    name: user.name,
+    warehouseId: user.warehouseId ?? null,
+    warehouseName: user.warehouseName ?? null,
+  }, secret, { expiresIn: '8h' })
 }
 
 export function authMiddleware(req, res, next) {
@@ -29,6 +31,22 @@ export function roleMiddleware(roles) {
     if (!roles.includes(req.user.role)) return res.status(403).json({ error: 'Forbidden' })
     next()
   }
+}
+
+export function isAdminUser(user) {
+  return String(user?.role || '').toUpperCase() === 'ADMIN'
+}
+
+export function getUserWarehouseId(user) {
+  const warehouseId = Number(user?.warehouseId || 0)
+  return warehouseId > 0 ? warehouseId : null
+}
+
+export function canAccessWarehouse(user, warehouseId) {
+  const targetWarehouseId = Number(warehouseId || 0)
+  if (!targetWarehouseId) return false
+  if (isAdminUser(user)) return true
+  return getUserWarehouseId(user) === targetWarehouseId
 }
 
 // New middleware for permission check
