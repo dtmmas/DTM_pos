@@ -387,7 +387,7 @@ async function normalizeSchema(conn) {
 
   await conn.query(`
     ALTER TABLE inventory_movements
-    MODIFY COLUMN type ENUM('INITIAL','PURCHASE','SALE','TRANSFER_IN','TRANSFER_OUT','ADJUSTMENT','IN','OUT','ADJ') NOT NULL
+    MODIFY COLUMN type ENUM('INITIAL','PURCHASE','SALE','TRANSFER_IN','TRANSFER_OUT','ADJUSTMENT','ADJUSTMENT_IN','ADJUSTMENT_OUT','IN','OUT','ADJ') NOT NULL
   `)
 
   await conn.query(`
