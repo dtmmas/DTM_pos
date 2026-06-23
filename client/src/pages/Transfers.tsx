@@ -74,6 +74,23 @@ interface Transfer {
   notes?: string
   created_by_user?: string
   total_quantity: number
+  destination_movement_summary?: string
+}
+
+interface TransferDetailItem {
+  id: number
+  product_id: number
+  product_name: string
+  sku?: string
+  quantity: number
+  batch_no?: string
+  imei?: string
+  serial?: string
+  destination_movement_type?: string
+}
+
+interface TransferDetail extends Transfer {
+  items: TransferDetailItem[]
 }
 
 export default function Transfers() {
@@ -90,6 +107,7 @@ export default function Transfers() {
   const [destId, setDestId] = useState<number | null>(null)
   const [items, setItems] = useState<TransferItem[]>([])
   const [notes, setNotes] = useState('')
+  const [destinationEntryMode, setDestinationEntryMode] = useState<'AUTO' | 'TRANSFER'>('AUTO')
   
   // Product Search State
   const [loadingSearch, setLoadingSearch] = useState(false)
@@ -99,6 +117,22 @@ export default function Transfers() {
   const [createSearchTerm, setCreateSearchTerm] = useState('')
   const [createSearchResults, setCreateSearchResults] = useState<Product[]>([])
   const [trackedSelection, setTrackedSelection] = useState<TrackedProductSelection | null>(null)
+  const [selectedTransferDetail, setSelectedTransferDetail] = useState<TransferDetail | null>(null)
+  const [loadingTransferDetailId, setLoadingTransferDetailId] = useState<number | null>(null)
+
+  const getDestinationMovementLabel = (summary?: string) => {
+    const normalized = String(summary || '').toUpperCase()
+    if (!normalized) return 'TRASLADO'
+    if (normalized === 'INITIAL') return 'INICIAL'
+    if (normalized === 'TRANSFER_IN') return 'TRASLADO'
+    return normalized.includes('INITIAL') && normalized.includes('TRANSFER_IN') ? 'MIXTO' : normalized
+  }
+
+  const getDestinationItemLabel = (movementType?: string) => {
+    const normalized = String(movementType || '').toUpperCase()
+    if (normalized === 'INITIAL') return 'INICIAL'
+    return 'TRASLADO'
+  }
 
   const filteredTransfers = transfers.filter(t => {
     const term = searchTerm.toLowerCase()
@@ -259,6 +293,19 @@ export default function Transfers() {
       setTransfers(res.data)
     } catch (err) {
       console.error(err)
+    }
+  }
+
+  const openTransferDetail = async (transferId: number) => {
+    setLoadingTransferDetailId(transferId)
+    try {
+      const res = await api.get(`/transfers/${transferId}`)
+      setSelectedTransferDetail(res.data as TransferDetail)
+    } catch (err) {
+      console.error(err)
+      alert('No se pudo cargar el detalle de la transferencia')
+    } finally {
+      setLoadingTransferDetailId(null)
     }
   }
 
@@ -424,6 +471,7 @@ export default function Transfers() {
       const payload = {
         source_warehouse_id: sourceId,
         destination_warehouse_id: destId,
+        destination_entry_mode: destinationEntryMode,
         items: items.map(i => ({ 
             product_id: i.productId, 
             quantity: i.quantity, 
@@ -443,6 +491,7 @@ export default function Transfers() {
       setDestId(null)
       setItems([])
       setNotes('')
+      setDestinationEntryMode('AUTO')
       resetCreateProductSearch()
     } catch (err: any) {
       console.error(err)
@@ -502,6 +551,7 @@ export default function Transfers() {
                 <th style={{ textAlign: 'left', padding: 12 }}>Fecha</th>
                 <th style={{ textAlign: 'left', padding: 12 }}>Origen</th>
                 <th style={{ textAlign: 'left', padding: 12 }}>Destino</th>
+                <th style={{ textAlign: 'center', padding: 12 }}>Registro Destino</th>
                 <th style={{ textAlign: 'right', padding: 12 }}>Items</th>
                 <th style={{ textAlign: 'left', padding: 12 }}>Usuario</th>
                 <th style={{ textAlign: 'center', padding: 12 }}>Estado</th>
@@ -523,6 +573,26 @@ export default function Transfers() {
                       {t.destination_warehouse_name}
                     </span>
                   </td>
+                  <td style={{ padding: 12, textAlign: 'center' }}>
+                    <span style={{
+                      padding: '4px 8px',
+                      borderRadius: 6,
+                      fontSize: 12,
+                      fontWeight: 600,
+                      background: getDestinationMovementLabel(t.destination_movement_summary) === 'INICIAL'
+                        ? '#dbeafe'
+                        : getDestinationMovementLabel(t.destination_movement_summary) === 'MIXTO'
+                          ? '#ede9fe'
+                          : '#dcfce7',
+                      color: getDestinationMovementLabel(t.destination_movement_summary) === 'INICIAL'
+                        ? '#1d4ed8'
+                        : getDestinationMovementLabel(t.destination_movement_summary) === 'MIXTO'
+                          ? '#6d28d9'
+                          : '#166534'
+                    }}>
+                      {getDestinationMovementLabel(t.destination_movement_summary)}
+                    </span>
+                  </td>
                   <td style={{ padding: 12, textAlign: 'right', fontWeight: 600 }}>{t.total_quantity}</td>
                   <td style={{ padding: 12, fontSize: 13, color: 'var(--muted)' }}>{t.created_by_user || 'N/A'}</td>
                   <td style={{ padding: 12, textAlign: 'center' }}>
@@ -538,8 +608,12 @@ export default function Transfers() {
                     </span>
                   </td>
                   <td style={{ padding: 12, textAlign: 'center' }}>
-                    {/* Placeholder for future view details action */}
-                    <button className="icon-btn" title="Ver detalles">
+                    <button
+                      className="icon-btn"
+                      title="Ver detalles"
+                      onClick={() => void openTransferDetail(t.id)}
+                      disabled={loadingTransferDetailId === t.id}
+                    >
                        <svg viewBox="0 0 24 24" width="18" height="18"><path d="M12 5c-7 0-11 7-11 7s4 7 11 7 11-7 11-7-4-7-11-7zm0 11a4 4 0 1 1 0-8 4 4 0 0 1 0 8z" fill="currentColor"/></svg>
                     </button>
                   </td>
@@ -547,7 +621,7 @@ export default function Transfers() {
               ))}
               {filteredTransfers.length === 0 && (
                 <tr>
-                  <td colSpan={8} style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No se encontraron transferencias</td>
+                  <td colSpan={9} style={{ textAlign: 'center', padding: 40, color: 'var(--muted)' }}>No se encontraron transferencias</td>
                 </tr>
               )}
             </tbody>
@@ -600,6 +674,21 @@ export default function Transfers() {
                   <option key={w.id} value={w.id}>{w.name}</option>
                 ))}
               </select>
+            </div>
+          </div>
+
+          <div style={{ marginBottom: 20 }}>
+            <label className="label">Registro en destino</label>
+            <select
+              className="input"
+              value={destinationEntryMode}
+              onChange={e => setDestinationEntryMode(e.target.value as 'AUTO' | 'TRANSFER')}
+            >
+              <option value="AUTO">Automatico: inicial si no existe, traslado si ya existe</option>
+              <option value="TRANSFER">Siempre registrar como traslado</option>
+            </select>
+            <div style={{ marginTop: 6, fontSize: 12, color: 'var(--muted)' }}>
+              En modo automatico, si la tienda destino aun no tiene existencia de ese producto se guardara como movimiento inicial.
             </div>
           </div>
 
@@ -850,6 +939,118 @@ export default function Transfers() {
             >
                 Confirmar Transferencia
             </button>
+          </div>
+        </div>
+      )}
+
+      {selectedTransferDetail && (
+        <div
+          onClick={() => setSelectedTransferDetail(null)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.45)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 20,
+            zIndex: 1000
+          }}
+        >
+          <div
+            className="card"
+            onClick={e => e.stopPropagation()}
+            style={{ width: '100%', maxWidth: 980, maxHeight: '85vh', overflowY: 'auto' }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', marginBottom: 16 }}>
+              <div>
+                <h3 style={{ margin: 0 }}>Detalle de Transferencia #{selectedTransferDetail.id}</h3>
+                <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 6 }}>
+                  {selectedTransferDetail.source_warehouse_name} {'->'} {selectedTransferDetail.destination_warehouse_name} | {formatDateTime(selectedTransferDetail.created_at)}
+                </div>
+              </div>
+              <button className="btn-secondary" type="button" onClick={() => setSelectedTransferDetail(null)}>
+                Cerrar
+              </button>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginBottom: 16 }}>
+              <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 12 }}>
+                <div style={{ fontSize: 12, color: 'var(--muted)' }}>Origen</div>
+                <div style={{ fontWeight: 700 }}>{selectedTransferDetail.source_warehouse_name}</div>
+              </div>
+              <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 12 }}>
+                <div style={{ fontSize: 12, color: 'var(--muted)' }}>Destino</div>
+                <div style={{ fontWeight: 700 }}>{selectedTransferDetail.destination_warehouse_name}</div>
+              </div>
+              <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 12 }}>
+                <div style={{ fontSize: 12, color: 'var(--muted)' }}>Estado</div>
+                <div style={{ fontWeight: 700 }}>{selectedTransferDetail.status}</div>
+              </div>
+              <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 12 }}>
+                <div style={{ fontSize: 12, color: 'var(--muted)' }}>Usuario</div>
+                <div style={{ fontWeight: 700 }}>{selectedTransferDetail.created_by_user || 'N/A'}</div>
+              </div>
+            </div>
+
+            <div style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead style={{ background: 'var(--modal)' }}>
+                  <tr>
+                    <th style={{ textAlign: 'left', padding: 12 }}>Producto</th>
+                    <th style={{ textAlign: 'left', padding: 12 }}>Detalle</th>
+                    <th style={{ textAlign: 'right', padding: 12 }}>Cantidad</th>
+                    <th style={{ textAlign: 'center', padding: 12 }}>Registro Destino</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {selectedTransferDetail.items.map(item => (
+                    <tr key={item.id} style={{ borderTop: '1px solid var(--border)' }}>
+                      <td style={{ padding: 12 }}>
+                        <div style={{ fontWeight: 600 }}>{item.product_name}</div>
+                        <div style={{ fontSize: 12, color: 'var(--muted)' }}>{item.sku || 'Sin SKU'}</div>
+                      </td>
+                      <td style={{ padding: 12, fontSize: 13 }}>
+                        {[
+                          item.batch_no ? `Lote: ${item.batch_no}` : '',
+                          item.imei ? `IMEI: ${item.imei}` : '',
+                          item.serial ? `Serie: ${item.serial}` : ''
+                        ].filter(Boolean).join(' | ') || 'Sin detalle adicional'}
+                      </td>
+                      <td style={{ padding: 12, textAlign: 'right', fontWeight: 600 }}>{item.quantity}</td>
+                      <td style={{ padding: 12, textAlign: 'center' }}>
+                        <span style={{
+                          padding: '4px 8px',
+                          borderRadius: 6,
+                          fontSize: 12,
+                          fontWeight: 600,
+                          background: getDestinationItemLabel(item.destination_movement_type) === 'INICIAL' ? '#dbeafe' : '#dcfce7',
+                          color: getDestinationItemLabel(item.destination_movement_type) === 'INICIAL' ? '#1d4ed8' : '#166534'
+                        }}>
+                          {getDestinationItemLabel(item.destination_movement_type)}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                  {selectedTransferDetail.items.length === 0 && (
+                    <tr>
+                      <td colSpan={4} style={{ textAlign: 'center', padding: 24, color: 'var(--muted)' }}>
+                        No hay items registrados para esta transferencia.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {selectedTransferDetail.notes && (
+              <div style={{ marginTop: 16 }}>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 6 }}>Notas</div>
+                <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 12 }}>
+                  {selectedTransferDetail.notes}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

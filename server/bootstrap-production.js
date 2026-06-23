@@ -416,6 +416,7 @@ async function normalizeSchema(conn) {
       FOREIGN KEY (product_id) REFERENCES products(id)
     )
   `)
+  await ensureColumn(conn, 'transfer_items', 'destination_movement_type', 'VARCHAR(20) NULL')
 
   await ensureForeignKey(conn, 'users', 'role_id', 'roles', 'fk_users_role', 'SET NULL')
   await ensureForeignKey(conn, 'users', 'warehouse_id', 'warehouses', 'fk_users_warehouse', 'SET NULL')

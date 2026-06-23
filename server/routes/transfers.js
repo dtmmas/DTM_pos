@@ -10,6 +10,21 @@ function isValidNumber(n) {
   return typeof n === 'number' && !isNaN(n) && n > 0
 }
 
+async function ensureTransferItemsDestinationTypeColumn(conn) {
+  const [rows] = await conn.query(`SHOW COLUMNS FROM transfer_items LIKE 'destination_movement_type'`)
+  if (!Array.isArray(rows) || rows.length === 0) {
+    await conn.query(`ALTER TABLE transfer_items ADD COLUMN destination_movement_type VARCHAR(20) NULL AFTER quantity`)
+  }
+}
+
+function resolveDestinationMovementType(mode, destinationStockQty) {
+  const normalizedMode = String(mode || 'AUTO').toUpperCase()
+  if (normalizedMode === 'TRANSFER') {
+    return 'TRANSFER_IN'
+  }
+  return Number(destinationStockQty || 0) > 0 ? 'TRANSFER_IN' : 'INITIAL'
+}
+
 async function getAllowedTrackedValues(conn, { productId, warehouseId, table, valueColumn }) {
   const [[stockRow]] = await conn.query(
     'SELECT quantity FROM product_warehouse_stock WHERE product_id = ? AND warehouse_id = ? LIMIT 1',
@@ -35,6 +50,7 @@ async function getAllowedTrackedValues(conn, { productId, warehouseId, table, va
 router.get('/', authMiddleware, async (req, res) => {
   try {
     const pool = await getPool()
+    await ensureTransferItemsDestinationTypeColumn(pool)
     const { limit = 50, offset = 0 } = req.query
 
     const isAdmin = isAdminUser(req.user)
@@ -52,7 +68,10 @@ router.get('/', authMiddleware, async (req, res) => {
              wd.name as destination_warehouse_name,
              u.name as created_by_user,
              (SELECT COUNT(*) FROM transfer_items ti WHERE ti.transfer_id = t.id) as item_count,
-             (SELECT SUM(quantity) FROM transfer_items ti WHERE ti.transfer_id = t.id) as total_quantity
+             (SELECT SUM(quantity) FROM transfer_items ti WHERE ti.transfer_id = t.id) as total_quantity,
+             (SELECT GROUP_CONCAT(DISTINCT COALESCE(ti.destination_movement_type, 'TRANSFER_IN') ORDER BY COALESCE(ti.destination_movement_type, 'TRANSFER_IN') SEPARATOR ',')
+              FROM transfer_items ti
+              WHERE ti.transfer_id = t.id) as destination_movement_summary
       FROM transfers t
       JOIN warehouses ws ON t.source_warehouse_id = ws.id
       JOIN warehouses wd ON t.destination_warehouse_id = wd.id
@@ -74,6 +93,7 @@ router.get('/:id', authMiddleware, async (req, res) => {
   try {
     const id = Number(req.params.id)
     const pool = await getPool()
+    await ensureTransferItemsDestinationTypeColumn(pool)
     const isAdmin = isAdminUser(req.user)
     const userWarehouseId = getUserWarehouseId(req.user)
     const whereClause = !isAdmin
@@ -116,7 +136,7 @@ router.get('/:id', authMiddleware, async (req, res) => {
 // POST /transfers - Create new transfer
 router.post('/', authMiddleware, roleMiddleware(['ADMIN', 'ALMACEN']), async (req, res) => {
   try {
-    const { source_warehouse_id, destination_warehouse_id, items, notes } = req.body
+    const { source_warehouse_id, destination_warehouse_id, destination_entry_mode, items, notes } = req.body
 
     const sourceWarehouseId = source_warehouse_id || req.body.sourceWarehouseId
     const destinationWarehouseId = destination_warehouse_id || req.body.destinationWarehouseId
@@ -141,12 +161,16 @@ router.post('/', authMiddleware, roleMiddleware(['ADMIN', 'ALMACEN']), async (re
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ error: 'La lista de productos esta vacia' })
     }
+    if (destination_entry_mode && !['AUTO', 'TRANSFER'].includes(String(destination_entry_mode).toUpperCase())) {
+      return res.status(400).json({ error: 'Modo de registro en destino inválido' })
+    }
     
     const pool = await getPool()
     const conn = await pool.getConnection()
     
     try {
       await conn.beginTransaction()
+      await ensureTransferItemsDestinationTypeColumn(conn)
 
       const [warehouseRows] = await conn.query(
         'SELECT id, status FROM warehouses WHERE id IN (?, ?)',
@@ -179,11 +203,6 @@ router.post('/', authMiddleware, roleMiddleware(['ADMIN', 'ALMACEN']), async (re
 
         if (!isValidNumber(quantity)) continue
 
-        await conn.query(`
-          INSERT INTO transfer_items (transfer_id, product_id, quantity)
-          VALUES (?, ?, ?)
-        `, [transferId, productId, quantity])
-        
         if (batchNo) {
              const [batchResult] = await conn.query(
                'UPDATE product_batches SET quantity = quantity - ? WHERE product_id = ? AND batch_no = ? AND warehouse_id = ? AND quantity >= ?',
@@ -249,6 +268,21 @@ router.post('/', authMiddleware, roleMiddleware(['ADMIN', 'ALMACEN']), async (re
              }
         }
 
+        const [[destinationStockRow]] = await conn.query(
+          'SELECT quantity FROM product_warehouse_stock WHERE product_id = ? AND warehouse_id = ? LIMIT 1',
+          [productId, finalDestinationWarehouseId]
+        )
+        const destinationMovementType = resolveDestinationMovementType(
+          destination_entry_mode,
+          Number(destinationStockRow?.quantity || 0)
+        )
+        const destinationMovementLabel = destinationMovementType === 'INITIAL' ? 'Ingreso inicial por transferencia' : 'Transferencia'
+
+        await conn.query(`
+          INSERT INTO transfer_items (transfer_id, product_id, quantity, destination_movement_type)
+          VALUES (?, ?, ?, ?)
+        `, [transferId, productId, quantity, destinationMovementType])
+
         await registerMovement({
           productId,
           warehouseId: finalSourceWarehouseId,
@@ -262,10 +296,10 @@ router.post('/', authMiddleware, roleMiddleware(['ADMIN', 'ALMACEN']), async (re
         await registerMovement({
           productId,
           warehouseId: finalDestinationWarehouseId,
-          type: 'TRANSFER_IN',
+          type: destinationMovementType,
           quantity: quantity,
           referenceId: transferId, 
-          notes: `Transferencia #${transferId} desde almacén ${finalSourceWarehouseId} ${batchNo ? `(Lote: ${batchNo})` : ''} ${imei ? `(IMEI: ${imei})` : ''} ${serial ? `(SN: ${serial})` : ''}`,
+          notes: `${destinationMovementLabel} #${transferId} desde almacén ${finalSourceWarehouseId} ${batchNo ? `(Lote: ${batchNo})` : ''} ${imei ? `(IMEI: ${imei})` : ''} ${serial ? `(SN: ${serial})` : ''}`,
           userId: req.user.id
         }, conn)
       }
