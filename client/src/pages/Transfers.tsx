@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { api } from '../api'
 import { useAuthStore } from '../store/auth'
 import { formatDateTime } from '../utils/date'
+import MobileBarcodeScannerButton from '../components/MobileBarcodeScannerButton'
 
 interface Warehouse {
   id: number
@@ -604,13 +605,22 @@ export default function Transfers() {
 
           <div style={{ marginBottom: 20 }}>
             <label className="label">Agregar Productos (Búsqueda en Origen)</label>
-            <input 
-              className="input"
-              placeholder={sourceId ? "Buscar por código, nombre, SKU o descripción..." : "Seleccione almacén origen primero"}
-              value={createSearchTerm}
-              onChange={e => handleCreateSearchProducts(e.target.value)}
-              disabled={!sourceId}
-            />
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <input 
+                className="input"
+                placeholder={sourceId ? "Buscar por código, nombre, SKU o descripción..." : "Seleccione almacén origen primero"}
+                value={createSearchTerm}
+                onChange={e => handleCreateSearchProducts(e.target.value)}
+                disabled={!sourceId}
+                style={{ flex: '1 1 320px' }}
+              />
+              <MobileBarcodeScannerButton
+                buttonLabel="Escanear"
+                modalTitle="Escanear producto para transferencia"
+                disabled={!sourceId}
+                onDetected={value => void handleCreateSearchProducts(value)}
+              />
+            </div>
             {loadingSearch && <div>Buscando...</div>}
             {createSearchResults.length > 0 && (
               <div style={{ border: '1px solid var(--border)', maxHeight: 200, overflowY: 'auto', marginTop: 5 }}>

@@ -4,6 +4,7 @@ import { api, getProducts, getCategories, getBrands, getSuppliers, createProduct
 import { useConfigStore } from '../store/config'
 import { formatMoney } from '../utils/currency'
 import { resolveUnitName, buildUnitNameMap } from '../utils/units'
+import MobileBarcodeScannerButton from '../components/MobileBarcodeScannerButton'
 
 interface Category {
   id: number
@@ -1041,7 +1042,14 @@ export default function Products() {
       <div className="page-toolbar">
         <h2 style={{ margin: 0 }}>{productsPageTitle}</h2>
         <div className="page-toolbar-actions">
-          <input placeholder="Buscar por codigo, SKU, nombre, descripcion, alternativo o generico..." value={query} onChange={e => setQuery(e.target.value)} style={{ width: 280, maxWidth: '100%' }} />
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <input placeholder="Buscar por codigo, SKU, nombre, descripcion, alternativo o generico..." value={query} onChange={e => setQuery(e.target.value)} style={{ width: 280, maxWidth: '100%' }} />
+            <MobileBarcodeScannerButton
+              buttonLabel="Escanear"
+              modalTitle="Escanear producto"
+              onDetected={value => setQuery(value)}
+            />
+          </div>
           <div style={{ fontSize: 12, color: 'var(--muted)' }}>
             Mostrando {filtered.length} de {products.length}
             {hasActiveFilters && (

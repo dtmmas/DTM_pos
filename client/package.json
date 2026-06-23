@@ -12,6 +12,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@zxing/browser": "^0.2.0",
     "axios": "^1.7.2",
     "dayjs": "^1.11.10",
     "jspdf": "^2.5.1",

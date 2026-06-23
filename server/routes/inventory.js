@@ -3,6 +3,7 @@ import { authMiddleware, roleMiddleware } from '../auth.js'
 import { getPool } from '../db.js'
 
 const router = express.Router()
+const REACTIVATABLE_DETAIL_STATUSES = new Set(['DAMAGED', 'RETURNED'])
 
 async function ensureInventoryAdjustmentTypes(pool) {
   const [rows] = await pool.query(`SHOW COLUMNS FROM inventory_movements LIKE 'type'`)
@@ -358,10 +359,34 @@ router.post('/adjust', authMiddleware, async (req, res) => {
           }
           for (const imei of imeis) {
             if (!imei) continue
-            // Verificar duplicados
-            const [existing] = await conn.query('SELECT id FROM product_imeis WHERE product_id = ? AND imei = ?', [productId, imei])
-            if (existing.length > 0) throw new Error(`El IMEI ${imei} ya existe`)
-            
+            const [existing] = await conn.query(
+              'SELECT id, product_id, status FROM product_imeis WHERE imei = ? LIMIT 1',
+              [imei]
+            )
+
+            if (existing.length > 0) {
+              const current = existing[0]
+              const currentStatus = String(current.status || '').toUpperCase()
+
+              if (Number(current.product_id) !== Number(productId)) {
+                throw new Error(`El IMEI ${imei} ya existe en otro producto`)
+              }
+
+              if (currentStatus === 'AVAILABLE') {
+                throw new Error(`El IMEI ${imei} ya existe y está disponible`)
+              }
+
+              if (!REACTIVATABLE_DETAIL_STATUSES.has(currentStatus)) {
+                throw new Error(`El IMEI ${imei} ya existe con estado ${currentStatus} y no puede reingresarse por ajuste`)
+              }
+
+              await conn.query(
+                'UPDATE product_imeis SET status = "AVAILABLE", warehouse_id = ? WHERE id = ?',
+                [warehouseId, current.id]
+              )
+              continue
+            }
+
             await conn.query(
               'INSERT INTO product_imeis (product_id, imei, status, warehouse_id) VALUES (?, ?, "AVAILABLE", ?)',
               [productId, imei, warehouseId]
@@ -376,9 +401,33 @@ router.post('/adjust', authMiddleware, async (req, res) => {
           }
           for (const serial of serials) {
             if (!serial) continue
-            // Verificar duplicados
-            const [existing] = await conn.query('SELECT id FROM product_serials WHERE product_id = ? AND serial_no = ?', [productId, serial])
-            if (existing.length > 0) throw new Error(`La serie ${serial} ya existe`)
+            const [existing] = await conn.query(
+              'SELECT id, product_id, status FROM product_serials WHERE serial_no = ? LIMIT 1',
+              [serial]
+            )
+
+            if (existing.length > 0) {
+              const current = existing[0]
+              const currentStatus = String(current.status || '').toUpperCase()
+
+              if (Number(current.product_id) !== Number(productId)) {
+                throw new Error(`La serie ${serial} ya existe en otro producto`)
+              }
+
+              if (currentStatus === 'AVAILABLE') {
+                throw new Error(`La serie ${serial} ya existe y está disponible`)
+              }
+
+              if (!REACTIVATABLE_DETAIL_STATUSES.has(currentStatus)) {
+                throw new Error(`La serie ${serial} ya existe con estado ${currentStatus} y no puede reingresarse por ajuste`)
+              }
+
+              await conn.query(
+                'UPDATE product_serials SET status = "AVAILABLE", warehouse_id = ? WHERE id = ?',
+                [warehouseId, current.id]
+              )
+              continue
+            }
 
             await conn.query(
               'INSERT INTO product_serials (product_id, serial_no, status, warehouse_id) VALUES (?, ?, "AVAILABLE", ?)',

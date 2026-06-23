@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router-dom'
 import jsPDF from 'jspdf'
 import { formatDateTime } from '../utils/date'
 import { formatCompanyName } from '../utils/text'
+import MobileBarcodeScannerButton from '../components/MobileBarcodeScannerButton'
 
 interface Product {
   id: number
@@ -19,6 +20,7 @@ interface Product {
   categoryId?: number
   brandId?: number
   sku?: string
+  productCode?: string
   productType?: 'GENERAL' | 'MEDICINAL' | 'IMEI' | 'SERIAL'
 }
 
@@ -379,6 +381,24 @@ export default function POS() {
     })
   }
 
+  const handleScannedProductCode = async (rawValue: string) => {
+    const scannedValue = String(rawValue || '').trim()
+    if (!scannedValue) return
+
+    setSearchTerm(scannedValue)
+
+    const normalizedValue = scannedValue.toLowerCase()
+    const exactMatches = products.filter(product => {
+      const productCode = String(product.productCode || '').trim().toLowerCase()
+      const sku = String(product.sku || '').trim().toLowerCase()
+      return productCode === normalizedValue || sku === normalizedValue
+    })
+
+    if (exactMatches.length === 1) {
+      await addToCart(exactMatches[0])
+    }
+  }
+
   const addBatchToCart = (product: Product, batch: {batchNo: string, expiryDate: string, quantity: number}, qty: number) => {
       setCart(prev => {
           const existing = prev.find(item => item.id === product.id && item.batchNo === batch.batchNo)
@@ -517,8 +537,10 @@ export default function POS() {
 
   const filteredProducts = useMemo(() => {
     return products.filter(p => {
-      const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                            p.sku?.toLowerCase().includes(searchTerm.toLowerCase())
+      const normalizedSearch = searchTerm.toLowerCase()
+      const matchesSearch = p.name.toLowerCase().includes(normalizedSearch) ||
+                            p.sku?.toLowerCase().includes(normalizedSearch) ||
+                            p.productCode?.toLowerCase().includes(normalizedSearch)
 
       const matchesCategory = selectedCategory ? p.categoryId === selectedCategory : true
       const matchesBrand = selectedBrand ? p.brandId === selectedBrand : true
@@ -1021,46 +1043,55 @@ export default function POS() {
       <div className="pos-left-panel">
         {/* Header: Search & Filter */}
         <div className="pos-filters">
-          <div style={{ position: 'relative', flex: '1 1 250px' }}>
-             <svg
-               width="20"
-               height="20"
-               viewBox="0 0 24 24"
-               fill="none"
-               stroke="currentColor"
-               strokeWidth="2"
-               strokeLinecap="round"
-               strokeLinejoin="round"
-               style={{
-                 position: 'absolute',
-                 left: '12px',
-                 top: '50%',
-                 transform: 'translateY(-50%)',
-                 color: 'var(--muted)'
-               }}
-             >
-               <circle cx="11" cy="11" r="8"></circle>
-               <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-             </svg>
-             <input
-               type="text"
-               placeholder="Buscar productos..."
-               value={searchTerm}
-               onChange={e => setSearchTerm(e.target.value)}
-               style={{
-                 width: '100%',
-                 padding: '10px 10px 10px 40px',
-                 border: '1px solid var(--border)',
-                 borderRadius: 8,
-                 fontSize: '1rem',
-                 outline: 'none',
-                 background: 'var(--bg)',
-                 color: 'var(--text)',
-                 transition: 'border-color 0.2s'
-               }}
-               onFocus={(e) => e.target.style.borderColor = 'var(--accent)'}
-               onBlur={(e) => e.target.style.borderColor = 'var(--border)'}
-             />
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flex: '1 1 250px' }}>
+            <div style={{ position: 'relative', flex: 1 }}>
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                style={{
+                  position: 'absolute',
+                  left: '12px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  color: 'var(--muted)'
+                }}
+              >
+                <circle cx="11" cy="11" r="8"></circle>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+              </svg>
+              <input
+                type="text"
+                placeholder="Buscar por nombre, SKU o codigo..."
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '10px 10px 10px 40px',
+                  border: '1px solid var(--border)',
+                  borderRadius: 8,
+                  fontSize: '1rem',
+                  outline: 'none',
+                  background: 'var(--bg)',
+                  color: 'var(--text)',
+                  transition: 'border-color 0.2s'
+                }}
+                onFocus={(e) => e.target.style.borderColor = 'var(--accent)'}
+                onBlur={(e) => e.target.style.borderColor = 'var(--border)'}
+              />
+            </div>
+            <MobileBarcodeScannerButton
+              buttonLabel="Escanear"
+              modalTitle="Escanear producto en POS"
+              onDetected={value => {
+                void handleScannedProductCode(value)
+              }}
+            />
           </div>
 
           <div style={{ position: 'relative', flex: '1 1 150px' }}>

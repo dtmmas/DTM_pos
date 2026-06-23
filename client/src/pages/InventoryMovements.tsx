@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo } from 'react'
 import { api, getProducts, getWarehouses, getCategories, getBrands, getProductWarehouseStock } from '../api'
 import { useConfigStore } from '../store/config'
 import { formatMoney } from '../utils/currency'
+import MobileBarcodeScannerButton from '../components/MobileBarcodeScannerButton'
 
 interface Movement {
   id: number
@@ -621,12 +622,19 @@ export default function InventoryMovements() {
       {activeTab === 'products' && (
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16, alignItems: 'center' }}>
-            <input 
-              placeholder="Buscar producto por nombre, SKU o código..." 
-              value={productQuery} 
-              onChange={e => setProductQuery(e.target.value)} 
-              style={{ width: 400, padding: 8, borderRadius: 6, border: '1px solid var(--border)' }}
-            />
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <input 
+                placeholder="Buscar producto por nombre, SKU o código..." 
+                value={productQuery} 
+                onChange={e => setProductQuery(e.target.value)} 
+                style={{ width: 400, maxWidth: '100%', padding: 8, borderRadius: 6, border: '1px solid var(--border)' }}
+              />
+              <MobileBarcodeScannerButton
+                buttonLabel="Escanear"
+                modalTitle="Escanear producto para ajuste"
+                onDetected={value => setProductQuery(value)}
+              />
+            </div>
             <div className="view-toggle">
               <button
                 className={`toggle-btn ${view === 'grid' ? 'active' : ''}`}
