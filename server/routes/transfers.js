@@ -10,6 +10,27 @@ function isValidNumber(n) {
   return typeof n === 'number' && !isNaN(n) && n > 0
 }
 
+async function getAllowedTrackedValues(conn, { productId, warehouseId, table, valueColumn }) {
+  const [[stockRow]] = await conn.query(
+    'SELECT quantity FROM product_warehouse_stock WHERE product_id = ? AND warehouse_id = ? LIMIT 1',
+    [productId, warehouseId]
+  )
+  const stockQty = Math.max(0, Number(stockRow?.quantity || 0))
+
+  const [rows] = await conn.query(
+    `SELECT ${valueColumn} AS tracked_value
+     FROM ${table}
+     WHERE product_id = ? AND warehouse_id = ? AND status = "AVAILABLE"
+     ORDER BY id ASC`,
+    [productId, warehouseId]
+  )
+
+  return (rows || [])
+    .map(row => row.tracked_value)
+    .filter(Boolean)
+    .slice(0, stockQty)
+}
+
 // GET /transfers - List all transfers
 router.get('/', authMiddleware, async (req, res) => {
   try {
@@ -172,16 +193,34 @@ router.post('/', authMiddleware, roleMiddleware(['ADMIN', 'ALMACEN']), async (re
                throw new Error(`Stock insuficiente o lote no disponible para el producto ${productId} en la tienda origen`)
              }
         } else if (imei) {
+             const allowedImeis = await getAllowedTrackedValues(conn, {
+               productId,
+               warehouseId: finalSourceWarehouseId,
+               table: 'product_imeis',
+               valueColumn: 'imei'
+             })
+             if (!allowedImeis.includes(imei)) {
+               throw new Error(`IMEI no disponible para transferir en la tienda origen para el producto ${productId}`)
+             }
              const [imeiResult] = await conn.query(
-               'UPDATE product_imeis SET warehouse_id = ? WHERE product_id = ? AND imei = ? AND warehouse_id = ?',
+               'UPDATE product_imeis SET warehouse_id = ? WHERE product_id = ? AND imei = ? AND warehouse_id = ? AND status = "AVAILABLE"',
                [finalDestinationWarehouseId, productId, imei, finalSourceWarehouseId]
              )
              if (!imeiResult.affectedRows) {
                throw new Error(`IMEI no disponible en la tienda origen para el producto ${productId}`)
              }
         } else if (serial) {
+             const allowedSerials = await getAllowedTrackedValues(conn, {
+               productId,
+               warehouseId: finalSourceWarehouseId,
+               table: 'product_serials',
+               valueColumn: 'serial_no'
+             })
+             if (!allowedSerials.includes(serial)) {
+               throw new Error(`Serie no disponible para transferir en la tienda origen para el producto ${productId}`)
+             }
              const [serialResult] = await conn.query(
-               'UPDATE product_serials SET warehouse_id = ? WHERE product_id = ? AND serial_no = ? AND warehouse_id = ?',
+               'UPDATE product_serials SET warehouse_id = ? WHERE product_id = ? AND serial_no = ? AND warehouse_id = ? AND status = "AVAILABLE"',
                [finalDestinationWarehouseId, productId, serial, finalSourceWarehouseId]
              )
              if (!serialResult.affectedRows) {

@@ -29,6 +29,44 @@ async function ensureInventoryAdjustmentTypes(pool) {
   `)
 }
 
+function buildAdjustmentNotes({ baseNotes, qty, batches, imeis, serials }) {
+  const parts = []
+  const normalizedBaseNotes = String(baseNotes || '').trim()
+
+  if (normalizedBaseNotes) {
+    parts.push(normalizedBaseNotes)
+  }
+
+  if (qty < 0 && Array.isArray(imeis) && imeis.length > 0) {
+    parts.push(`IMEIs ajustados: ${imeis.join(', ')}`)
+  }
+
+  if (qty < 0 && Array.isArray(serials) && serials.length > 0) {
+    parts.push(`Series ajustadas: ${serials.join(', ')}`)
+  }
+
+  if (qty > 0 && Array.isArray(imeis) && imeis.length > 0) {
+    parts.push(`IMEIs ingresados: ${imeis.join(', ')}`)
+  }
+
+  if (qty > 0 && Array.isArray(serials) && serials.length > 0) {
+    parts.push(`Series ingresadas: ${serials.join(', ')}`)
+  }
+
+  if (Array.isArray(batches) && batches.length > 0) {
+    const batchSummary = batches
+      .filter(batch => batch?.batchNo)
+      .map(batch => `${batch.batchNo}${batch.expiryDate ? ` (${batch.expiryDate})` : ''}${batch.quantity ? ` x${batch.quantity}` : ''}`)
+      .join(', ')
+
+    if (batchSummary) {
+      parts.push(`Lotes: ${batchSummary}`)
+    }
+  }
+
+  return parts.join(' | ').slice(0, 255) || 'Ajuste manual de inventario'
+}
+
 // Listar movimientos de inventario
 router.get('/movements', authMiddleware, async (req, res) => {
   try {
@@ -267,13 +305,34 @@ router.post('/adjust', authMiddleware, async (req, res) => {
         if (qty < 0) throw new Error('El stock inicial no puede ser negativo')
       }
 
+      if (qty < 0) {
+        if (String(req.body?.productType || '').toUpperCase() === 'IMEI') {
+          if (!Array.isArray(imeis) || imeis.length !== absQty) {
+            throw new Error(`Debes seleccionar exactamente ${absQty} IMEI(s) para el ajuste`)
+          }
+        }
+        if (String(req.body?.productType || '').toUpperCase() === 'SERIAL') {
+          if (!Array.isArray(serials) || serials.length !== absQty) {
+            throw new Error(`Debes seleccionar exactamente ${absQty} serie(s) para el ajuste`)
+          }
+        }
+      }
+
+      const movementNotes = buildAdjustmentNotes({
+        baseNotes: notes,
+        qty,
+        batches,
+        imeis,
+        serials
+      })
+
       await registerMovement({
         productId,
         warehouseId,
         type: realType,
         quantity: absQty,
         userId: req.user?.id,
-        notes: notes || 'Ajuste manual de inventario'
+        notes: movementNotes
       }, conn)
 
       // Si es una entrada (qty > 0), registrar detalles
@@ -325,6 +384,34 @@ router.post('/adjust', authMiddleware, async (req, res) => {
               'INSERT INTO product_serials (product_id, serial_no, status, warehouse_id) VALUES (?, ?, "AVAILABLE", ?)',
               [productId, serial, warehouseId]
             )
+          }
+        }
+      }
+
+      if (qty < 0) {
+        if (imeis && Array.isArray(imeis) && imeis.length > 0) {
+          for (const imei of imeis) {
+            if (!imei) continue
+            const [result] = await conn.query(
+              'UPDATE product_imeis SET status = "DAMAGED" WHERE product_id = ? AND imei = ? AND warehouse_id = ? AND status = "AVAILABLE"',
+              [productId, imei, warehouseId]
+            )
+            if (!result.affectedRows) {
+              throw new Error(`El IMEI ${imei} no está disponible en el almacén seleccionado`)
+            }
+          }
+        }
+
+        if (serials && Array.isArray(serials) && serials.length > 0) {
+          for (const serial of serials) {
+            if (!serial) continue
+            const [result] = await conn.query(
+              'UPDATE product_serials SET status = "DAMAGED" WHERE product_id = ? AND serial_no = ? AND warehouse_id = ? AND status = "AVAILABLE"',
+              [productId, serial, warehouseId]
+            )
+            if (!result.affectedRows) {
+              throw new Error(`La serie ${serial} no está disponible en el almacén seleccionado`)
+            }
           }
         }
       }

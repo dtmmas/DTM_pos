@@ -18,6 +18,7 @@ const permissionCatalog = [
   ['roles:write', 'Crear/Editar roles'],
   ['products:read', 'Ver productos'],
   ['products:write', 'Crear/Editar productos'],
+  ['products:sensitive:read', 'Ver costos y proveedores en productos'],
   ['categories:read', 'Ver categorias'],
   ['categories:write', 'Crear/Editar categorias'],
   ['brands:read', 'Ver marcas'],

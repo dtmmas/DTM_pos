@@ -47,6 +47,8 @@ interface Batch {
 }
 
 export default function Products() {
+  const user = useAuthStore(s => s.user)
+  const hasPermission = useAuthStore(s => s.hasPermission)
   const [products, setProducts] = useState<Product[]>([])
   const [categories, setCategories] = useState<Category[]>([])
   const [brands, setBrands] = useState<Brand[]>([])
@@ -463,6 +465,15 @@ export default function Products() {
     suppliers.forEach(s => { map[s.id] = s.name })
     return map
   }, [suppliers])
+  const canViewSensitiveProductData = useMemo(() => {
+    if (!user) return false
+    return String(user.role || '').toUpperCase() === 'ADMIN' || hasPermission('products:sensitive:read')
+  }, [user, hasPermission])
+  const canManageProducts = useMemo(() => {
+    if (!user) return false
+    return String(user.role || '').toUpperCase() === 'ADMIN' || hasPermission('products:write')
+  }, [user, hasPermission])
+  const productsPageTitle = canManageProducts ? 'Productos' : 'Catalogo de productos'
 
   const departmentMap = useMemo(() => {
     const map: Record<number, string> = {}
@@ -514,6 +525,46 @@ export default function Products() {
     const deptId = (cat?.departmentId ?? (cat?.parentId ? (categoryById[cat.parentId]?.departmentId ?? null) : null))
     return deptId ? (departmentMap[deptId] || null) : null
   }, [details, categoryById, departmentMap])
+
+  const detailImeis = useMemo(() => {
+    if (Array.isArray(details?.imeiDetails) && details.imeiDetails.length > 0) {
+      return details.imeiDetails
+        .filter((item: any) => item && item.imei)
+        .map((item: any) => ({
+          value: String(item.imei || ''),
+          warehouseName: String(item.warehouseName || 'Sin almacen'),
+        }))
+    }
+    if (Array.isArray(details?.imeis) && details.imeis.length > 0) {
+      return details.imeis
+        .filter((item: any) => item)
+        .map((item: any) => ({
+          value: String(item || ''),
+          warehouseName: 'Almacen no especificado',
+        }))
+    }
+    return []
+  }, [details])
+
+  const detailSerials = useMemo(() => {
+    if (Array.isArray(details?.serialDetails) && details.serialDetails.length > 0) {
+      return details.serialDetails
+        .filter((item: any) => item && item.serial)
+        .map((item: any) => ({
+          value: String(item.serial || ''),
+          warehouseName: String(item.warehouseName || 'Sin almacen'),
+        }))
+    }
+    if (Array.isArray(details?.serials) && details.serials.length > 0) {
+      return details.serials
+        .filter((item: any) => item)
+        .map((item: any) => ({
+          value: String(item || ''),
+          warehouseName: 'Almacen no especificado',
+        }))
+    }
+    return []
+  }, [details])
 
   const parentCategories = useMemo(() => categories.filter(c => !c.parentId && (formDepartmentId ? c.departmentId === formDepartmentId : true)), [categories, formDepartmentId])
   const subcategoriesForParent = useMemo(() => categories.filter(c => c.parentId === formParentId), [categories, formParentId])
@@ -579,16 +630,24 @@ export default function Products() {
     }
     if (!q) return base
     return base.filter(p => {
+      const productCode = (p.productCode || '').toLowerCase()
       const name = (p.name || '').toLowerCase()
       const sku = (p.sku || '').toLowerCase()
+      const description = (p.description || '').toLowerCase()
+      const altName = (p.altName || '').toLowerCase()
+      const genericName = (p.genericName || '').toLowerCase()
       const cat = p.categoryId ? (categoryMap[p.categoryId] || '').toLowerCase() : ''
       const brand = p.brandId ? (brandMap[p.brandId] || '').toLowerCase() : ''
-      const supplier = p.supplierId ? (supplierMap[p.supplierId] || '').toLowerCase() : ''
-      return name.includes(q) || sku.includes(q) || cat.includes(q) || brand.includes(q) || supplier.includes(q)
+      const supplier = canViewSensitiveProductData && p.supplierId ? (supplierMap[p.supplierId] || '').toLowerCase() : ''
+      return productCode.includes(q) || name.includes(q) || sku.includes(q) || description.includes(q) || altName.includes(q) || genericName.includes(q) || cat.includes(q) || brand.includes(q) || supplier.includes(q)
     })
-  }, [products, query, categoryMap, brandMap, supplierMap, categoryById, selectedDepartmentId, selectedCategoryId, selectedSubcategoryId, selectedBrandId, selectedSupplierId])
+  }, [products, query, categoryMap, brandMap, supplierMap, categoryById, selectedDepartmentId, selectedCategoryId, selectedSubcategoryId, selectedBrandId, selectedSupplierId, canViewSensitiveProductData])
 
   function startCreate() {
+    if (!canManageProducts) {
+      alert('Solo tienes acceso al catalogo de productos en modo visualizacion')
+      return
+    }
     setShowProductTypeSelector(true)
     setEditTarget(null)
   }
@@ -620,6 +679,10 @@ export default function Products() {
   }
 
   async function startEdit(p: Product) {
+    if (!canManageProducts) {
+      alert('No tienes permisos para editar productos')
+      return
+    }
     try {
       setEditTarget(p)
       setShowCreate(true)
@@ -949,6 +1012,10 @@ export default function Products() {
   }
 
   async function removeProduct(id: number) {
+    if (!canManageProducts) {
+      alert('No tienes permisos para eliminar productos')
+      return
+    }
     const target = products.find(p => p.id === id) || null
     setDeleteTarget(target)
   }
@@ -972,9 +1039,9 @@ export default function Products() {
   return (
     <div className="page-shell">
       <div className="page-toolbar">
-        <h2 style={{ margin: 0 }}>Productos</h2>
+        <h2 style={{ margin: 0 }}>{productsPageTitle}</h2>
         <div className="page-toolbar-actions">
-          <input placeholder="Buscar..." value={query} onChange={e => setQuery(e.target.value)} style={{ width: 280, maxWidth: '100%' }} />
+          <input placeholder="Buscar por codigo, SKU, nombre, descripcion, alternativo o generico..." value={query} onChange={e => setQuery(e.target.value)} style={{ width: 280, maxWidth: '100%' }} />
           <div style={{ fontSize: 12, color: 'var(--muted)' }}>
             Mostrando {filtered.length} de {products.length}
             {hasActiveFilters && (
@@ -984,7 +1051,12 @@ export default function Products() {
               </>
             )}
           </div>
-          <button className="primary-btn" onClick={startCreate}>Nuevo producto</button>
+          {!canManageProducts && (
+            <div style={{ fontSize: 12, color: 'var(--muted)', padding: '6px 10px', border: '1px solid var(--border)', borderRadius: 10 }}>
+              Catalogo en modo visualizacion
+            </div>
+          )}
+          {canManageProducts && <button className="primary-btn" onClick={startCreate}>Nuevo producto</button>}
           <div className="view-toggle">
             <button
               className={`toggle-btn ${view === 'grid' ? 'active' : ''}`}
@@ -1054,6 +1126,7 @@ export default function Products() {
               ))}
             </select>
           </div>
+          {canViewSensitiveProductData && (
           <div>
             <label style={{ fontSize: 12, color: 'var(--muted)' }}>Proveedor</label>
             <select value={selectedSupplierId === null ? '' : selectedSupplierId} onChange={e => setSelectedSupplierId(e.target.value ? Number(e.target.value) : null)}>
@@ -1063,6 +1136,7 @@ export default function Products() {
               ))}
             </select>
           </div>
+          )}
           <div>
             <button className="small-btn" onClick={clearFilters} disabled={!hasActiveFilters} title="Limpiar todos los filtros" aria-label="Limpiar filtros">
               🧹 Limpiar filtros
@@ -1191,21 +1265,23 @@ export default function Products() {
                       </span>
                     </div>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: canViewSensitiveProductData ? '1fr 1fr' : '1fr', gap: 8 }}>
                       <div style={{ padding: '8px 10px', borderRadius: 12, background: 'var(--bg)', border: '1px solid var(--border)' }}>
                         <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>Precio</div>
                         <div style={{ fontWeight: 800, fontSize: 16, color: 'var(--text)' }}>{formatMoney(p.price ?? 0, currency)}</div>
                       </div>
+                      {canViewSensitiveProductData && (
                       <div style={{ padding: '8px 10px', borderRadius: 12, background: 'rgba(245, 158, 11, 0.10)', border: '1px solid rgba(245, 158, 11, 0.25)' }}>
                         <div style={{ fontSize: 11, color: '#92400E', marginBottom: 4 }}>Costo</div>
                         <div style={{ fontWeight: 700, fontSize: 14, color: '#92400E' }}>{formatMoney(p.cost ?? 0, currency)}</div>
                       </div>
+                      )}
                     </div>
 
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, fontSize: 11, color: 'var(--muted)' }}>
                       <div>Marca: {p.brandId ? (brandMap[p.brandId] || '—') : '—'}</div>
                       <div>Unidad: {resolveUnitName(unitNameByCode, p.unit)}</div>
-                      <div>Proveedor: {p.supplierId ? (supplierMap[p.supplierId] || '—') : '—'}</div>
+                      {canViewSensitiveProductData && <div>Proveedor: {p.supplierId ? (supplierMap[p.supplierId] || '—') : '—'}</div>}
                       <div>Stock min: {p.minStock ?? '—'}</div>
                     </div>
 
@@ -1213,17 +1289,21 @@ export default function Products() {
                     <button className="icon-btn" title="Ver detalles" aria-label="Ver detalles" onClick={() => openDetails(p.id)}>
                       <svg viewBox="0 0 24 24" width="18" height="18"><path d="M12 5c-7 0-11 7-11 7s4 7 11 7 11-7 11-7-4-7-11-7zm0 11a4 4 0 1 1 0-8 4 4 0 0 1 0 8z" fill="currentColor"/></svg>
                     </button>
-                    <button className="icon-btn primary" title="Editar" aria-label="Editar" onClick={() => startEdit(p)}>
-                      <svg viewBox="0 0 24 24" width="18" height="18"><path d="M3 17.25V21h3.75L17.81 9.94a1 1 0 0 0 0-1.41l-3.34-3.34a1 1 0 0 0-1.41 0L3 16.59z" fill="currentColor"/></svg>
-                    </button>
-                    <button className="icon-btn danger" title="Eliminar" aria-label="Eliminar" onClick={() => removeProduct(p.id)} disabled={loading}>
-                      <svg viewBox="0 0 24 24" width="18" height="18">
-                        <path d="M3 6h18" stroke="currentColor" strokeWidth="2"/>
-                        <path d="M8 6V4h8v2" stroke="currentColor" strokeWidth="2"/>
-                        <path d="M19 6l-1 14H6L5 6" stroke="currentColor" strokeWidth="2"/>
-                        <path d="M10 11v6M14 11v6" stroke="currentColor" strokeWidth="2"/>
-                      </svg>
-                    </button>
+                    {canManageProducts && (
+                      <button className="icon-btn primary" title="Editar" aria-label="Editar" onClick={() => startEdit(p)}>
+                        <svg viewBox="0 0 24 24" width="18" height="18"><path d="M3 17.25V21h3.75L17.81 9.94a1 1 0 0 0 0-1.41l-3.34-3.34a1 1 0 0 0-1.41 0L3 16.59z" fill="currentColor"/></svg>
+                      </button>
+                    )}
+                    {canManageProducts && (
+                      <button className="icon-btn danger" title="Eliminar" aria-label="Eliminar" onClick={() => removeProduct(p.id)} disabled={loading}>
+                        <svg viewBox="0 0 24 24" width="18" height="18">
+                          <path d="M3 6h18" stroke="currentColor" strokeWidth="2"/>
+                          <path d="M8 6V4h8v2" stroke="currentColor" strokeWidth="2"/>
+                          <path d="M19 6l-1 14H6L5 6" stroke="currentColor" strokeWidth="2"/>
+                          <path d="M10 11v6M14 11v6" stroke="currentColor" strokeWidth="2"/>
+                        </svg>
+                      </button>
+                    )}
                   </div>
                 </div>
                 </div>
@@ -1242,8 +1322,8 @@ export default function Products() {
                     <th style={{ textAlign: 'left', padding: 8 }}>Subcategoría</th>
                     <th style={{ textAlign: 'left', padding: 8 }}>Departamento</th>
                     <th style={{ textAlign: 'left', padding: 8 }}>Marca</th>
-                    <th style={{ textAlign: 'left', padding: 8 }}>Proveedor</th>
-                    <th style={{ textAlign: 'left', padding: 8 }}>Costo</th>
+                    {canViewSensitiveProductData && <th style={{ textAlign: 'left', padding: 8 }}>Proveedor</th>}
+                    {canViewSensitiveProductData && <th style={{ textAlign: 'left', padding: 8 }}>Costo</th>}
                     <th style={{ textAlign: 'left', padding: 8 }}>Precio</th>
                     <th style={{ textAlign: 'left', padding: 8 }}>Precio 2</th>
                     <th style={{ textAlign: 'left', padding: 8 }}>Precio 3</th>
@@ -1306,8 +1386,8 @@ export default function Products() {
                           : '-'}
                       </td>
                       <td style={{ padding: 8 }}>{p.brandId ? brandMap[p.brandId] : '-'}</td>
-                      <td style={{ padding: 8 }}>{p.supplierId ? supplierMap[p.supplierId] : '-'}</td>
-                      <td style={{ padding: 8, color: '#D97706' }}>{formatMoney(p.cost ?? 0, currency)}</td>
+                      {canViewSensitiveProductData && <td style={{ padding: 8 }}>{p.supplierId ? supplierMap[p.supplierId] : '-'}</td>}
+                      {canViewSensitiveProductData && <td style={{ padding: 8, color: '#D97706' }}>{formatMoney(p.cost ?? 0, currency)}</td>}
                       <td style={{ padding: 8 }}>{formatMoney(p.price ?? 0, currency)}</td>
                       <td style={{ padding: 8 }}>{formatMoney(p.price2 ?? 0, currency)}</td>
                       <td style={{ padding: 8 }}>{formatMoney(p.price3 ?? 0, currency)}</td>
@@ -1336,17 +1416,21 @@ export default function Products() {
                           <button className="icon-btn" title="Ver detalles" aria-label="Ver detalles" onClick={() => openDetails(p.id)}>
                             <svg viewBox="0 0 24 24" width="18" height="18"><path d="M12 5c-7 0-11 7-11 7s4 7 11 7 11-7 11-7-4-7-11-7zm0 11a4 4 0 1 1 0-8 4 4 0 0 1 0 8z" fill="currentColor"/></svg>
                           </button>
-                          <button className="icon-btn primary" title="Editar" aria-label="Editar" onClick={() => startEdit(p)}>
-                            <svg viewBox="0 0 24 24" width="18" height="18"><path d="M3 17.25V21h3.75L17.81 9.94a1 1 0 0 0 0-1.41l-3.34-3.34a1 1 0 0 0-1.41 0L3 16.59z" fill="currentColor"/></svg>
-                          </button>
-                          <button className="icon-btn danger" title="Eliminar" aria-label="Eliminar" onClick={() => removeProduct(p.id)} disabled={loading}>
-                            <svg viewBox="0 0 24 24" width="18" height="18">
-                              <path d="M3 6h18" stroke="currentColor" strokeWidth="2"/>
-                              <path d="M8 6V4h8v2" stroke="currentColor" strokeWidth="2"/>
-                              <path d="M19 6l-1 14H6L5 6" stroke="currentColor" strokeWidth="2"/>
-                              <path d="M10 11v6M14 11v6" stroke="currentColor" strokeWidth="2"/>
-                            </svg>
-                          </button>
+                          {canManageProducts && (
+                            <button className="icon-btn primary" title="Editar" aria-label="Editar" onClick={() => startEdit(p)}>
+                              <svg viewBox="0 0 24 24" width="18" height="18"><path d="M3 17.25V21h3.75L17.81 9.94a1 1 0 0 0 0-1.41l-3.34-3.34a1 1 0 0 0-1.41 0L3 16.59z" fill="currentColor"/></svg>
+                            </button>
+                          )}
+                          {canManageProducts && (
+                            <button className="icon-btn danger" title="Eliminar" aria-label="Eliminar" onClick={() => removeProduct(p.id)} disabled={loading}>
+                              <svg viewBox="0 0 24 24" width="18" height="18">
+                                <path d="M3 6h18" stroke="currentColor" strokeWidth="2"/>
+                                <path d="M8 6V4h8v2" stroke="currentColor" strokeWidth="2"/>
+                                <path d="M19 6l-1 14H6L5 6" stroke="currentColor" strokeWidth="2"/>
+                                <path d="M10 11v6M14 11v6" stroke="currentColor" strokeWidth="2"/>
+                              </svg>
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -1512,10 +1596,12 @@ export default function Products() {
                 <div style={{ border: '1px solid var(--border)', borderRadius: 20, padding: 16, background: 'var(--modal)' }}>
                   <div style={{ fontWeight: 700, marginBottom: 12 }}>Precios y unidad</div>
                   <div className="responsive-form-grid">
-                    <div>
-                      <label>Precio costo</label>
-                      <input type="number" value={formState.cost} onChange={(e) => onFormChange('cost', e.target.value)} placeholder="0.00" />
-                    </div>
+                    {canViewSensitiveProductData && (
+                      <div>
+                        <label>Precio costo</label>
+                        <input type="number" value={formState.cost} onChange={(e) => onFormChange('cost', e.target.value)} placeholder="0.00" />
+                      </div>
+                    )}
                     <div>
                       <label>Precio</label>
                       <input type="number" value={formState.price} onChange={(e) => onFormChange('price', e.target.value)} placeholder="0.00" />
@@ -1572,25 +1658,27 @@ export default function Products() {
                         </button>
                       </div>
                     </div>
-                    <div>
-                      <label>Proveedor</label>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <select value={formState.supplierId} onChange={e => onFormChange('supplierId', e.target.value)}>
-                          <option value="">--</option>
-                          {suppliers.map(s => (
-                            <option key={s.id} value={s.id}>{s.name}</option>
-                          ))}
-                        </select>
-                        <button
-                          type="button"
-                          title="Nuevo proveedor"
-                          onClick={() => setQuickAddModal('supplier')}
-                          style={{ width: 32, height: 32, borderRadius: 10, background: '#ef4444', color: '#fff', border: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, boxShadow: '0 2px 6px rgba(239,68,68,0.35)', cursor: 'pointer' }}
-                        >
-                          +
-                        </button>
+                    {canViewSensitiveProductData && (
+                      <div>
+                        <label>Proveedor</label>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <select value={formState.supplierId} onChange={e => onFormChange('supplierId', e.target.value)}>
+                            <option value="">--</option>
+                            {suppliers.map(s => (
+                              <option key={s.id} value={s.id}>{s.name}</option>
+                            ))}
+                          </select>
+                          <button
+                            type="button"
+                            title="Nuevo proveedor"
+                            onClick={() => setQuickAddModal('supplier')}
+                            style={{ width: 32, height: 32, borderRadius: 10, background: '#ef4444', color: '#fff', border: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, boxShadow: '0 2px 6px rgba(239,68,68,0.35)', cursor: 'pointer' }}
+                          >
+                            +
+                          </button>
+                        </div>
                       </div>
-                    </div>
+                    )}
                     <div>
                       <label>Departamento</label>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1855,10 +1943,12 @@ export default function Products() {
                           <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>Precio venta</div>
                           <div style={{ fontWeight: 800, fontSize: 18, color: 'var(--text)' }}>{formatMoney(details.price ?? 0, currency)}</div>
                         </div>
+                        {canViewSensitiveProductData && (
                         <div style={{ padding: 14, borderRadius: 16, background: 'rgba(245, 158, 11, 0.10)', border: '1px solid rgba(245, 158, 11, 0.22)' }}>
                           <div style={{ fontSize: 11, color: '#92400E', marginBottom: 6 }}>Costo</div>
                           <div style={{ fontWeight: 800, fontSize: 17, color: '#92400E' }}>{formatMoney(details.cost ?? 0, currency)}</div>
                         </div>
+                        )}
                         <div style={{ padding: 14, borderRadius: 16, background: 'var(--bg)', border: '1px solid var(--border)' }}>
                           <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>Stock minimo</div>
                           <div style={{ fontWeight: 800, fontSize: 17, color: 'var(--text)' }}>{details.minStock ?? '—'}</div>
@@ -1938,10 +2028,12 @@ export default function Products() {
                         <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>Marca</div>
                         <div style={{ fontWeight: 700 }}>{details.brandId ? (brandMap[details.brandId] || '-') : '-'}</div>
                       </div>
-                      <div style={{ padding: 12, borderRadius: 14, background: 'var(--bg)', border: '1px solid var(--border)' }}>
-                        <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>Proveedor</div>
-                        <div style={{ fontWeight: 700 }}>{details.supplierId ? (supplierMap[details.supplierId] || '-') : '-'}</div>
-                      </div>
+                      {canViewSensitiveProductData && (
+                        <div style={{ padding: 12, borderRadius: 14, background: 'var(--bg)', border: '1px solid var(--border)' }}>
+                          <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>Proveedor</div>
+                          <div style={{ fontWeight: 700 }}>{details.supplierId ? (supplierMap[details.supplierId] || '-') : '-'}</div>
+                        </div>
+                      )}
                       <div style={{ padding: 12, borderRadius: 14, background: 'var(--bg)', border: '1px solid var(--border)' }}>
                         <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>Ubicacion</div>
                         <div style={{ fontWeight: 700 }}>{details.shelfLocation || '—'}</div>
@@ -2009,14 +2101,17 @@ export default function Products() {
                             <svg viewBox="0 0 24 24" width="12" height="12" style={{ transform: showImeis ? 'rotate(90deg)' : 'rotate(0deg)' }}>
                               <path d="M9 6l6 6-6 6" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
                             </svg>
-                            {showImeis ? 'Ocultar' : 'Ver'} ({details.imeis?.length ?? 0})
+                            {showImeis ? 'Ocultar' : 'Ver'} ({detailImeis.length})
                           </button>
                         </div>
                         {showImeis && (
                           <>
-                            {(!details.imeis || details.imeis.length === 0) && <div style={{ fontSize: 12, color: '#94a3b8' }}>Sin IMEIs</div>}
-                            {details.imeis?.map((im: string, idx: number) => (
-                              <div key={idx} style={{ padding: '8px 0', borderBottom: '1px solid var(--border)' }}>{im}</div>
+                            {detailImeis.length === 0 && <div style={{ fontSize: 12, color: '#94a3b8' }}>Sin IMEIs disponibles</div>}
+                            {detailImeis.map((im, idx: number) => (
+                              <div key={`${im.value}-${idx}`} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '10px 0', borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}>
+                                <div style={{ fontWeight: 700, wordBreak: 'break-word' }}>{im.value}</div>
+                                <div style={{ fontSize: 12, color: 'var(--muted)' }}>Almacen: {im.warehouseName}</div>
+                              </div>
                             ))}
                           </>
                         )}
@@ -2034,14 +2129,17 @@ export default function Products() {
                             <svg viewBox="0 0 24 24" width="12" height="12" style={{ transform: showSerials ? 'rotate(90deg)' : 'rotate(0deg)' }}>
                               <path d="M9 6l6 6-6 6" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
                             </svg>
-                            {showSerials ? 'Ocultar' : 'Ver'} ({details.serials?.length ?? 0})
+                            {showSerials ? 'Ocultar' : 'Ver'} ({detailSerials.length})
                           </button>
                         </div>
                         {showSerials && (
                           <>
-                            {(!details.serials || details.serials.length === 0) && <div style={{ fontSize: 12, color: '#94a3b8' }}>Sin series</div>}
-                            {details.serials?.map((sr: string, idx: number) => (
-                              <div key={idx} style={{ padding: '8px 0', borderBottom: '1px solid var(--border)' }}>{sr}</div>
+                            {detailSerials.length === 0 && <div style={{ fontSize: 12, color: '#94a3b8' }}>Sin series disponibles</div>}
+                            {detailSerials.map((sr, idx: number) => (
+                              <div key={`${sr.value}-${idx}`} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '10px 0', borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}>
+                                <div style={{ fontWeight: 700, wordBreak: 'break-word' }}>{sr.value}</div>
+                                <div style={{ fontSize: 12, color: 'var(--muted)' }}>Almacen: {sr.warehouseName}</div>
+                              </div>
                             ))}
                           </>
                         )}

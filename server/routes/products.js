@@ -78,10 +78,80 @@ function resolveWarehouseScope(req, requestedWarehouseId) {
   return { warehouseId: targetWarehouseId, denied: false }
 }
 
+async function canViewSensitiveProductData(req, pool) {
+  return userHasPermissionCode(req, pool, 'products:sensitive:read')
+}
+
+async function canWriteProducts(req, pool) {
+  return userHasPermissionCode(req, pool, 'products:write')
+}
+
+async function userHasPermissionCode(req, pool, permissionCode) {
+  if (isAdminUser(req.user)) {
+    return true
+  }
+  if (!req.user?.id) {
+    return false
+  }
+
+  const [rows] = await pool.query(
+    `SELECT 1
+     FROM users u
+     JOIN role_permissions rp ON u.role_id = rp.role_id
+     JOIN permissions p ON rp.permission_id = p.id
+     WHERE u.id = ? AND p.code = ?
+     LIMIT 1`,
+    [req.user.id, permissionCode]
+  )
+
+  return Array.isArray(rows) && rows.length > 0
+}
+
+function sanitizeSensitiveProductFields(item, includeSensitive) {
+  if (includeSensitive) {
+    return item
+  }
+
+  return {
+    ...item,
+    cost: undefined,
+    supplierId: undefined,
+  }
+}
+
+function capTrackedDetailsByWarehouseStock(values, stockRows, warehouseKey = 'warehouseId') {
+  const safeValues = Array.isArray(values) ? values.filter(Boolean) : []
+  const stockMap = new Map(
+    (Array.isArray(stockRows) ? stockRows : []).map(row => [
+      Number(row?.warehouse_id || 0),
+      Math.max(0, Number(row?.quantity || 0))
+    ])
+  )
+  const usedByWarehouse = new Map()
+
+  return safeValues.filter(item => {
+    const warehouseId = Number(item?.[warehouseKey] || 0)
+    const allowedQty = stockMap.get(warehouseId)
+
+    if (!allowedQty) {
+      return false
+    }
+
+    const usedQty = usedByWarehouse.get(warehouseId) || 0
+    if (usedQty >= allowedQty) {
+      return false
+    }
+
+    usedByWarehouse.set(warehouseId, usedQty + 1)
+    return true
+  })
+}
+
 router.get('/', authMiddleware, async (req, res) => {
   try {
-    const { warehouseId } = req.query
+    const { warehouseId, search } = req.query
     const pool = await getPool()
+    const includeSensitive = await canViewSensitiveProductData(req, pool)
     const scope = resolveWarehouseScope(req, warehouseId)
 
     if (scope.denied) {
@@ -108,13 +178,24 @@ router.get('/', authMiddleware, async (req, res) => {
               p.min_stock, p.unit, p.description, p.image_url, p.product_type, p.alt_name, p.generic_name, p.shelf_location 
        FROM products p 
        LEFT JOIN product_warehouse_stock pws ON p.id = pws.product_id`
-    
-    // No filtramos en el JOIN para poder calcular 'other_stock'
-    
+
+    const normalizedSearch = String(search || '').trim()
+    if (normalizedSearch) {
+      query += `
+        WHERE (
+          p.name LIKE ?
+          OR COALESCE(p.sku, '') LIKE ?
+          OR COALESCE(p.product_code, '') LIKE ?
+          OR COALESCE(p.description, '') LIKE ?
+        )`
+      const searchTerm = `%${normalizedSearch}%`
+      params.push(searchTerm, searchTerm, searchTerm, searchTerm)
+    }
+
     query += ` GROUP BY p.id ORDER BY p.id DESC`
     const [rows] = await pool.query(query, params)
 
-    const items = rows.map(r => ({
+    const items = rows.map(r => sanitizeSensitiveProductFields({
       id: r.id,
       name: r.name,
       sku: r.sku,
@@ -137,7 +218,7 @@ router.get('/', authMiddleware, async (req, res) => {
       altName: r.alt_name || undefined,
       genericName: r.generic_name || undefined,
       shelfLocation: r.shelf_location || undefined,
-    }))
+    }, includeSensitive))
     return res.json(items)
   } catch (err) {
     console.error('Products GET error:', err)
@@ -151,6 +232,7 @@ router.get('/:id', authMiddleware, async (req, res) => {
     const id = Number(req.params.id)
     const { warehouseId } = req.query
     const pool = await getPool()
+    const includeSensitive = await canViewSensitiveProductData(req, pool)
     const scope = resolveWarehouseScope(req, warehouseId)
 
     if (scope.denied) {
@@ -189,6 +271,8 @@ router.get('/:id', authMiddleware, async (req, res) => {
     let batches = []
     let imeis = []
     let serials = []
+    let imeiDetails = []
+    let serialDetails = []
 
     if (type === 'MEDICINAL') {
       let query = 'SELECT batch_no, expiry_date, quantity FROM product_batches WHERE product_id = ?'
@@ -205,28 +289,58 @@ router.get('/:id', authMiddleware, async (req, res) => {
         quantity: Number(b.quantity || 0),
       }))
     } else if (type === 'IMEI') {
-      let query = 'SELECT imei FROM product_imeis WHERE product_id = ?'
+      const stockQuery = scope.warehouseId
+        ? 'SELECT warehouse_id, quantity FROM product_warehouse_stock WHERE product_id = ? AND warehouse_id = ? ORDER BY warehouse_id ASC'
+        : 'SELECT warehouse_id, quantity FROM product_warehouse_stock WHERE product_id = ? ORDER BY warehouse_id ASC'
+      const stockParams = scope.warehouseId ? [id, scope.warehouseId] : [id]
+      const [trackedStockRows] = await pool.query(stockQuery, stockParams)
+
+      let query = `
+        SELECT pi.imei, pi.warehouse_id, w.name AS warehouse_name
+        FROM product_imeis pi
+        LEFT JOIN warehouses w ON w.id = pi.warehouse_id
+        WHERE pi.product_id = ? AND pi.status = "AVAILABLE"`
       const qParams = [id]
       if (scope.warehouseId) {
-        query += ' AND warehouse_id = ?'
+        query += ' AND pi.warehouse_id = ?'
         qParams.push(scope.warehouseId)
       }
-      query += ' ORDER BY id ASC'
+      query += ' ORDER BY pi.id ASC'
       const [imeiRows] = await pool.query(query, qParams)
-      imeis = (imeiRows || []).map(rw => rw.imei || '')
+      imeiDetails = capTrackedDetailsByWarehouseStock((imeiRows || []).map(rw => ({
+        imei: rw.imei || '',
+        warehouseId: rw.warehouse_id ? Number(rw.warehouse_id) : null,
+        warehouseName: rw.warehouse_name || 'Sin almacén',
+      })), trackedStockRows)
+      imeis = imeiDetails.map(item => item.imei)
     } else if (type === 'SERIAL') {
-      let query = 'SELECT serial_no FROM product_serials WHERE product_id = ?'
+      const stockQuery = scope.warehouseId
+        ? 'SELECT warehouse_id, quantity FROM product_warehouse_stock WHERE product_id = ? AND warehouse_id = ? ORDER BY warehouse_id ASC'
+        : 'SELECT warehouse_id, quantity FROM product_warehouse_stock WHERE product_id = ? ORDER BY warehouse_id ASC'
+      const stockParams = scope.warehouseId ? [id, scope.warehouseId] : [id]
+      const [trackedStockRows] = await pool.query(stockQuery, stockParams)
+
+      let query = `
+        SELECT ps.serial_no, ps.warehouse_id, w.name AS warehouse_name
+        FROM product_serials ps
+        LEFT JOIN warehouses w ON w.id = ps.warehouse_id
+        WHERE ps.product_id = ? AND ps.status = "AVAILABLE"`
       const qParams = [id]
       if (scope.warehouseId) {
-        query += ' AND warehouse_id = ?'
+        query += ' AND ps.warehouse_id = ?'
         qParams.push(scope.warehouseId)
       }
-      query += ' ORDER BY id ASC'
+      query += ' ORDER BY ps.id ASC'
       const [serialRows] = await pool.query(query, qParams)
-      serials = (serialRows || []).map(rw => rw.serial_no || '')
+      serialDetails = capTrackedDetailsByWarehouseStock((serialRows || []).map(rw => ({
+        serial: rw.serial_no || '',
+        warehouseId: rw.warehouse_id ? Number(rw.warehouse_id) : null,
+        warehouseName: rw.warehouse_name || 'Sin almacén',
+      })), trackedStockRows)
+      serials = serialDetails.map(item => item.serial)
     }
 
-    return res.json({
+    return res.json(sanitizeSensitiveProductFields({
       id: r.id,
       name: r.name,
       sku: r.sku,
@@ -252,7 +366,9 @@ router.get('/:id', authMiddleware, async (req, res) => {
       batches,
       imeis,
       serials,
-    })
+      imeiDetails,
+      serialDetails,
+    }, includeSensitive))
   } catch (err) {
     console.error('Products GET by id error:', err)
     return res.status(500).json({ error: 'Server error' })
@@ -371,6 +487,9 @@ router.post('/', authMiddleware, upload.single('image'), async (req, res) => {
     const { name, sku, productCode, categoryId, brandId, supplierId, price, price2, price3, cost, stock, initialStock, minStock, unit, description, productType, altName, genericName, shelfLocation } = req.body
     const imageUrl = req.file ? `/uploads/${req.file.filename}` : null
     const pool = await getPool()
+    if (!await canWriteProducts(req, pool)) {
+      return res.status(403).json({ error: 'No tienes permisos para crear productos' })
+    }
 
     // Sanear arrays recibidos
     const rawBatches = parseJsonArrayField(req.body, 'batches')
@@ -545,6 +664,9 @@ router.put('/:id', authMiddleware, upload.single('image'), async (req, res) => {
     const id = Number(req.params.id)
     const { name, sku, productCode, categoryId, brandId, supplierId, price, price2, price3, cost, stock, initialStock, minStock, unit, description, productType, altName, genericName, shelfLocation } = req.body
     const pool = await getPool()
+    if (!await canWriteProducts(req, pool)) {
+      return res.status(403).json({ error: 'No tienes permisos para editar productos' })
+    }
     let nextImage = null
     if (req.file) nextImage = `/uploads/${req.file.filename}`
     else {
@@ -769,6 +891,9 @@ router.delete('/:id', authMiddleware, async (req, res) => {
   try {
     const id = Number(req.params.id)
     const pool = await getPool()
+    if (!await canWriteProducts(req, pool)) {
+      return res.status(403).json({ error: 'No tienes permisos para eliminar productos' })
+    }
     await ensureWarehouseStockTable(pool)
 
     const [rows] = await pool.query(

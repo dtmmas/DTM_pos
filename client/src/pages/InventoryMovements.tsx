@@ -94,6 +94,8 @@ export default function InventoryMovements() {
   })
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [currentWarehouseStock, setCurrentWarehouseStock] = useState<number | null>(null)
+  const [availableAdjustImeis, setAvailableAdjustImeis] = useState<string[]>([])
+  const [availableAdjustSerials, setAvailableAdjustSerials] = useState<string[]>([])
 
   // Helper for array inputs
   const updateBatch = (idx: number, field: keyof Batch, val: any) => {
@@ -125,8 +127,8 @@ export default function InventoryMovements() {
   // Effect to sync IMEI/Serial inputs with Quantity
   useEffect(() => {
     if (!showAdjust || !selectedProduct) return
-    const qty = Number(adjustForm.quantity)
-    if (qty <= 0) return // Only for positive adjustments (adding stock)
+    const qty = Math.abs(Number(adjustForm.quantity))
+    if (!qty) return
 
     const pt = (selectedProduct.productType || 'GENERAL').toUpperCase()
     if (pt === 'IMEI') {
@@ -143,7 +145,7 @@ export default function InventoryMovements() {
         } else if (qty < currentLen) {
             setAdjustForm(prev => ({ ...prev, serials: prev.serials.slice(0, qty) }))
         }
-    } else if (pt === 'MEDICINAL') {
+    } else if (pt === 'MEDICINAL' && Number(adjustForm.quantity) > 0) {
         // For medicinal, we don't auto-create rows based on quantity, but we could initialize one if empty
         if (adjustForm.batches.length === 0) {
             setAdjustForm(prev => ({ ...prev, batches: [{ batchNo: '', expiryDate: '', quantity: qty }] }))
@@ -170,19 +172,39 @@ export default function InventoryMovements() {
   // Load specific warehouse stock when product/warehouse changes in modal
   useEffect(() => {
     if (showAdjust && selectedProduct && adjustForm.warehouseId) {
-      const fetchStock = async () => {
+      let cancelled = false
+      setCurrentWarehouseStock(null)
+      setAvailableAdjustImeis([])
+      setAvailableAdjustSerials([])
+
+      const fetchStockAndDetails = async () => {
         try {
-          const stocks = await getProductWarehouseStock(selectedProduct.id)
+          const [stocks, detailRes] = await Promise.all([
+            getProductWarehouseStock(selectedProduct.id),
+            api.get(`/products/${selectedProduct.id}`, { params: { warehouseId: adjustForm.warehouseId } })
+          ])
+          if (cancelled) return
+
           const whStock = stocks.find(s => String(s.warehouseId) === String(adjustForm.warehouseId))
           setCurrentWarehouseStock(whStock ? whStock.quantity : 0)
+          setAvailableAdjustImeis(Array.isArray(detailRes.data?.imeis) ? detailRes.data.imeis : [])
+          setAvailableAdjustSerials(Array.isArray(detailRes.data?.serials) ? detailRes.data.serials : [])
         } catch (err) {
+          if (cancelled) return
           console.error(err)
           setCurrentWarehouseStock(null)
+          setAvailableAdjustImeis([])
+          setAvailableAdjustSerials([])
         }
       }
-      fetchStock()
+      fetchStockAndDetails()
+      return () => {
+        cancelled = true
+      }
     } else {
       setCurrentWarehouseStock(null)
+      setAvailableAdjustImeis([])
+      setAvailableAdjustSerials([])
     }
   }, [showAdjust, selectedProduct, adjustForm.warehouseId])
 
@@ -289,6 +311,9 @@ export default function InventoryMovements() {
   const openAdjustModal = (product?: Product) => {
     // Pre-select first warehouse if available
     const defaultWh = warehouses.length > 0 ? String(warehouses[0].id) : ''
+    setCurrentWarehouseStock(null)
+    setAvailableAdjustImeis([])
+    setAvailableAdjustSerials([])
     
     setAdjustForm({
       productId: product ? String(product.id) : '',
@@ -346,9 +371,48 @@ export default function InventoryMovements() {
             }
         }
     }
+
+    if (qty < 0) {
+      const requiredCount = Math.abs(qty)
+      if (pt === 'IMEI') {
+        if (adjustForm.imeis.some(i => !i.trim())) {
+          alert('Seleccione todos los IMEIs que se van a descontar')
+          return
+        }
+        const unique = new Set(adjustForm.imeis.map(i => i.trim().toUpperCase()))
+        if (unique.size !== adjustForm.imeis.length || adjustForm.imeis.length !== requiredCount) {
+          alert(`Debes seleccionar exactamente ${requiredCount} IMEI(s) diferentes`)
+          return
+        }
+      } else if (pt === 'SERIAL') {
+        if (adjustForm.serials.some(s => !s.trim())) {
+          alert('Seleccione todas las series que se van a descontar')
+          return
+        }
+        const unique = new Set(adjustForm.serials.map(s => s.trim().toUpperCase()))
+        if (unique.size !== adjustForm.serials.length || adjustForm.serials.length !== requiredCount) {
+          alert(`Debes seleccionar exactamente ${requiredCount} serie(s) diferentes`)
+          return
+        }
+      }
+    }
     
     try {
-      await api.post('/inventory/adjust', adjustForm)
+      const adjustedImeis = qty < 0 ? adjustForm.imeis.map(i => i.trim().toUpperCase()).filter(Boolean) : []
+      const adjustedSerials = qty < 0 ? adjustForm.serials.map(s => s.trim().toUpperCase()).filter(Boolean) : []
+
+      await api.post('/inventory/adjust', {
+        ...adjustForm,
+        productType: selectedProduct?.productType || 'GENERAL'
+      })
+
+      if (adjustedImeis.length > 0) {
+        setAvailableAdjustImeis(prev => prev.filter(imei => !adjustedImeis.includes(String(imei).trim().toUpperCase())))
+      }
+      if (adjustedSerials.length > 0) {
+        setAvailableAdjustSerials(prev => prev.filter(serial => !adjustedSerials.includes(String(serial).trim().toUpperCase())))
+      }
+
       alert('Ajuste registrado correctamente')
       setShowAdjust(false)
       if (activeTab === 'products') {
@@ -368,10 +432,52 @@ export default function InventoryMovements() {
       case 'PURCHASE': return 'COMPRA'
       case 'INITIAL': return 'INICIAL'
       case 'TRANSFER': return 'TRANSFERENCIA'
+      case 'TRANSFER_IN': return 'TRANSFERENCIA ENTRADA'
+      case 'TRANSFER_OUT': return 'TRANSFERENCIA SALIDA'
       case 'ADJUSTMENT': return 'AJUSTE'
+      case 'ADJUSTMENT_IN': return 'AJUSTE ENTRADA'
+      case 'ADJUSTMENT_OUT': return 'AJUSTE SALIDA'
       case 'SALE_CANCEL': return 'CANCELACIÓN VENTA'
       default: return type
     }
+  }
+
+  const getMovementTrackingDetail = (notes?: string) => {
+    if (!notes) return ''
+
+    const parts = String(notes)
+      .split(' | ')
+      .map(part => part.trim())
+      .filter(Boolean)
+
+    return parts
+      .filter(part =>
+        part.startsWith('IMEIs ajustados:') ||
+        part.startsWith('Series ajustadas:') ||
+        part.startsWith('IMEIs ingresados:') ||
+        part.startsWith('Series ingresadas:') ||
+        part.startsWith('Lotes:')
+      )
+      .join(' | ')
+  }
+
+  const getMovementGeneralNotes = (notes?: string) => {
+    if (!notes) return ''
+
+    const parts = String(notes)
+      .split(' | ')
+      .map(part => part.trim())
+      .filter(Boolean)
+
+    return parts
+      .filter(part =>
+        !part.startsWith('IMEIs ajustados:') &&
+        !part.startsWith('Series ajustadas:') &&
+        !part.startsWith('IMEIs ingresados:') &&
+        !part.startsWith('Series ingresadas:') &&
+        !part.startsWith('Lotes:')
+      )
+      .join(' | ')
   }
 
   // Filter products
@@ -683,7 +789,7 @@ export default function InventoryMovements() {
           </div>
 
           <div style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 800 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 980 }}>
               <thead style={{ background: 'var(--surface)' }}>
                 <tr>
                   <th style={{ padding: 12, textAlign: 'left' }}>Fecha</th>
@@ -691,15 +797,16 @@ export default function InventoryMovements() {
                   <th style={{ padding: 12, textAlign: 'left' }}>Producto</th>
                   <th style={{ padding: 12, textAlign: 'left' }}>Almacén</th>
                   <th style={{ padding: 12, textAlign: 'right' }}>Cantidad</th>
+                  <th style={{ padding: 12, textAlign: 'left' }}>Detalle</th>
                   <th style={{ padding: 12, textAlign: 'left' }}>Referencia</th>
                   <th style={{ padding: 12, textAlign: 'left' }}>Usuario</th>
                 </tr>
               </thead>
               <tbody>
                 {loadingHistory ? (
-                  <tr><td colSpan={7} style={{ padding: 20, textAlign: 'center' }}>Cargando...</td></tr>
+                  <tr><td colSpan={8} style={{ padding: 20, textAlign: 'center' }}>Cargando...</td></tr>
                 ) : items.length === 0 ? (
-                  <tr><td colSpan={7} style={{ padding: 20, textAlign: 'center' }}>No hay movimientos recientes</td></tr>
+                  <tr><td colSpan={8} style={{ padding: 20, textAlign: 'center' }}>No hay movimientos recientes</td></tr>
                 ) : items.map(m => (
                   <tr key={m.id} style={{ borderTop: '1px solid var(--border)' }}>
                     <td style={{ padding: 12, fontSize: 13 }}>
@@ -733,9 +840,21 @@ export default function InventoryMovements() {
                     <td style={{ padding: 12, textAlign: 'right', fontWeight: 'bold', color: m.quantity > 0 ? 'green' : 'red' }}>
                       {m.quantity > 0 ? '+' : ''}{m.quantity}
                     </td>
+                    <td style={{ padding: 12, fontSize: 12, maxWidth: 260 }}>
+                      <div
+                        style={{
+                          color: getMovementTrackingDetail(m.notes) ? 'var(--text)' : 'var(--muted)',
+                          whiteSpace: 'normal',
+                          wordBreak: 'break-word'
+                        }}
+                        title={getMovementTrackingDetail(m.notes)}
+                      >
+                        {getMovementTrackingDetail(m.notes) || '-'}
+                      </div>
+                    </td>
                     <td style={{ padding: 12, fontSize: 13 }}>
                       {m.reference_id ? `#${m.reference_id}` : '-'}
-                      {m.notes && <div style={{ fontSize: 11, color: 'gray' }}>{m.notes}</div>}
+                      {getMovementGeneralNotes(m.notes) && <div style={{ fontSize: 11, color: 'gray' }}>{getMovementGeneralNotes(m.notes)}</div>}
                     </td>
                     <td style={{ padding: 12, fontSize: 13 }}>{m.user_name || 'Sistema'}</td>
                   </tr>
@@ -828,7 +947,7 @@ export default function InventoryMovements() {
           </div>
 
           <div style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 900 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1120 }}>
               <thead style={{ background: 'var(--surface)' }}>
                 <tr>
                   <th style={{ padding: 12, textAlign: 'left' }}>Fecha</th>
@@ -837,6 +956,7 @@ export default function InventoryMovements() {
                   <th style={{ padding: 12, textAlign: 'right' }}>Entrada</th>
                   <th style={{ padding: 12, textAlign: 'right' }}>Salida</th>
                   <th style={{ padding: 12, textAlign: 'right', background: 'rgba(0,0,0,0.03)' }}>Saldo</th>
+                  <th style={{ padding: 12, textAlign: 'left' }}>Detalle</th>
                   <th style={{ padding: 12, textAlign: 'left' }}>Almacén</th>
                   <th style={{ padding: 12, textAlign: 'left' }}>Usuario</th>
                   <th style={{ padding: 12, textAlign: 'left' }}>Notas</th>
@@ -844,11 +964,11 @@ export default function InventoryMovements() {
               </thead>
               <tbody>
                 {!kardexSelectedProduct ? (
-                  <tr><td colSpan={9} style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}>Seleccione un producto para ver su Kardex</td></tr>
+                  <tr><td colSpan={10} style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}>Seleccione un producto para ver su Kardex</td></tr>
                 ) : loadingKardex ? (
-                  <tr><td colSpan={9} style={{ padding: 40, textAlign: 'center' }}>Cargando Kardex...</td></tr>
+                  <tr><td colSpan={10} style={{ padding: 40, textAlign: 'center' }}>Cargando Kardex...</td></tr>
                 ) : kardexItems.length === 0 ? (
-                  <tr><td colSpan={9} style={{ padding: 40, textAlign: 'center' }}>No hay movimientos registrados en este periodo</td></tr>
+                  <tr><td colSpan={10} style={{ padding: 40, textAlign: 'center' }}>No hay movimientos registrados en este periodo</td></tr>
                 ) : kardexItems.map(m => (
                   <tr key={m.id} style={{ borderTop: '1px solid var(--border)' }}>
                     <td style={{ padding: 12, fontSize: 13 }}>{new Date(m.date).toLocaleString()}</td>
@@ -871,10 +991,22 @@ export default function InventoryMovements() {
                     <td style={{ padding: 12, textAlign: 'right', fontWeight: 'bold', background: 'rgba(0,0,0,0.03)' }}>
                       {m.balance}
                     </td>
+                    <td style={{ padding: 12, fontSize: 12, maxWidth: 260 }}>
+                      <div
+                        style={{
+                          color: getMovementTrackingDetail(m.notes) ? 'var(--text)' : 'var(--muted)',
+                          whiteSpace: 'normal',
+                          wordBreak: 'break-word'
+                        }}
+                        title={getMovementTrackingDetail(m.notes)}
+                      >
+                        {getMovementTrackingDetail(m.notes) || '-'}
+                      </div>
+                    </td>
                     <td style={{ padding: 12, fontSize: 13 }}>{m.warehouse_name}</td>
                     <td style={{ padding: 12, fontSize: 13 }}>{m.user_name || 'Sistema'}</td>
-                    <td style={{ padding: 12, fontSize: 12, color: 'var(--muted)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={m.notes}>
-                      {m.notes}
+                    <td style={{ padding: 12, fontSize: 12, color: 'var(--muted)', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={getMovementGeneralNotes(m.notes)}>
+                      {getMovementGeneralNotes(m.notes) || '-'}
                     </td>
                   </tr>
                 ))}
@@ -954,7 +1086,7 @@ export default function InventoryMovements() {
                 />
               </div>
 
-              {/* Dynamic Inputs for Details (Only for positive quantity) */}
+              {/* Dynamic inputs for tracked product details */}
               {selectedProduct && Number(adjustForm.quantity) > 0 && (
                 <>
                   {(selectedProduct.productType === 'MEDICINAL') && (
@@ -1020,6 +1152,56 @@ export default function InventoryMovements() {
                     </div>
                   )}
                 </>
+              )}
+
+              {selectedProduct && Number(adjustForm.quantity) < 0 && selectedProduct.productType === 'IMEI' && (
+                <div style={{ background: 'var(--surface)', padding: 10, borderRadius: 8 }}>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 6 }}>
+                    IMEIs a descontar ({adjustForm.imeis.length})
+                  </label>
+                  {adjustForm.imeis.map((imei, idx) => {
+                    const selectedValues = adjustForm.imeis.filter((value, valueIdx) => valueIdx !== idx && value)
+                    const options = availableAdjustImeis.filter(option => !selectedValues.includes(option) || option === imei)
+                    return (
+                      <select
+                        key={idx}
+                        value={imei}
+                        onChange={e => updateImei(idx, e.target.value)}
+                        style={{ width: '100%', padding: 6, fontSize: 12, marginBottom: 6, display: 'block' }}
+                      >
+                        <option value="">Seleccionar IMEI...</option>
+                        {options.map(option => (
+                          <option key={option} value={option}>{option}</option>
+                        ))}
+                      </select>
+                    )
+                  })}
+                </div>
+              )}
+
+              {selectedProduct && Number(adjustForm.quantity) < 0 && selectedProduct.productType === 'SERIAL' && (
+                <div style={{ background: 'var(--surface)', padding: 10, borderRadius: 8 }}>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 6 }}>
+                    Series a descontar ({adjustForm.serials.length})
+                  </label>
+                  {adjustForm.serials.map((serial, idx) => {
+                    const selectedValues = adjustForm.serials.filter((value, valueIdx) => valueIdx !== idx && value)
+                    const options = availableAdjustSerials.filter(option => !selectedValues.includes(option) || option === serial)
+                    return (
+                      <select
+                        key={idx}
+                        value={serial}
+                        onChange={e => updateSerial(idx, e.target.value)}
+                        style={{ width: '100%', padding: 6, fontSize: 12, marginBottom: 6, display: 'block' }}
+                      >
+                        <option value="">Seleccionar Serie...</option>
+                        {options.map(option => (
+                          <option key={option} value={option}>{option}</option>
+                        ))}
+                      </select>
+                    )
+                  })}
+                </div>
               )}
 
               <div>

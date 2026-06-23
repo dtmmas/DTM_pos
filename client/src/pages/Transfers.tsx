@@ -14,6 +14,9 @@ interface Product {
   sku: string
   stock: number
   imageUrl?: string
+  productCode?: string
+  description?: string
+  productType?: string
 }
 
 interface TransferItem {
@@ -29,6 +32,34 @@ interface TransferItem {
   availableBatches?: any[]
   availableImeis?: any[]
   availableSerials?: any[]
+}
+
+interface ProductBatchOption {
+  batchNo: string
+  expiryDate?: string
+  quantity: number
+}
+
+interface ProductDetailResponse {
+  id: number
+  name: string
+  sku?: string
+  productCode?: string
+  description?: string
+  productType?: string
+  stock: number
+  batches?: ProductBatchOption[]
+  imeis?: string[]
+  serials?: string[]
+}
+
+interface TrackedProductSelection {
+  product: Product
+  productType: 'IMEI' | 'SERIAL'
+  availableImeis: string[]
+  availableSerials: string[]
+  selectedImeis: string[]
+  selectedSerials: string[]
 }
 
 interface Transfer {
@@ -61,10 +92,12 @@ export default function Transfers() {
   
   // Product Search State
   const [loadingSearch, setLoadingSearch] = useState(false)
+  const [loadingProductId, setLoadingProductId] = useState<number | null>(null)
   
   // Create Form Product Search
   const [createSearchTerm, setCreateSearchTerm] = useState('')
   const [createSearchResults, setCreateSearchResults] = useState<Product[]>([])
+  const [trackedSelection, setTrackedSelection] = useState<TrackedProductSelection | null>(null)
 
   const filteredTransfers = transfers.filter(t => {
     const term = searchTerm.toLowerCase()
@@ -92,6 +125,18 @@ export default function Transfers() {
     : warehouses.filter(w => w.id === userWarehouseId)
   const sourceWarehouse = warehouses.find(w => w.id === userWarehouseId) || null
   const destinationWarehouses = warehouses.filter(w => w.id !== sourceId)
+  const selectedImeisInItems = items
+    .map(item => item.imei)
+    .filter((value): value is string => Boolean(value))
+  const selectedSerialsInItems = items
+    .map(item => item.serial)
+    .filter((value): value is string => Boolean(value))
+  const availableTrackedImeis = trackedSelection
+    ? trackedSelection.availableImeis.filter(imei => !selectedImeisInItems.includes(imei))
+    : []
+  const availableTrackedSerials = trackedSelection
+    ? trackedSelection.availableSerials.filter(serial => !selectedSerialsInItems.includes(serial))
+    : []
 
   useEffect(() => {
     loadWarehouses()
@@ -103,6 +148,100 @@ export default function Transfers() {
       setSourceId(userWarehouseId)
     }
   }, [isAdmin, userWarehouseId])
+
+  const resetCreateProductSearch = () => {
+    setCreateSearchTerm('')
+    setCreateSearchResults([])
+    setTrackedSelection(null)
+    setLoadingProductId(null)
+  }
+
+  const fetchProductDetail = async (productId: number) => {
+    if (!sourceId) return null
+    const res = await api.get(`/products/${productId}`, { params: { warehouseId: sourceId } })
+    return res.data as ProductDetailResponse
+  }
+
+  const refreshItemAvailability = async (productId: number) => {
+    const detail = await fetchProductDetail(productId)
+    if (!detail) return null
+
+    setItems(prev => prev.map(item => {
+      if (item.productId !== productId) return item
+
+      const nextImeis = Array.isArray(detail.imeis) ? detail.imeis : []
+      const nextSerials = Array.isArray(detail.serials) ? detail.serials : []
+      const nextBatches = Array.isArray(detail.batches) ? detail.batches : []
+      const selectedBatch = nextBatches.find(batch => batch.batchNo === item.batchNo)
+
+      return {
+        ...item,
+        availableImeis: nextImeis,
+        availableSerials: nextSerials,
+        availableBatches: nextBatches,
+        imei: item.imei && !nextImeis.includes(item.imei) ? '' : item.imei,
+        serial: item.serial && !nextSerials.includes(item.serial) ? '' : item.serial,
+        batchNo: item.batchNo && !nextBatches.some(batch => batch.batchNo === item.batchNo) ? '' : item.batchNo,
+        stockAtSource: selectedBatch ? selectedBatch.quantity : Number(detail.stock || item.stockAtSource || 0)
+      }
+    }))
+
+    if (trackedSelection?.product.id === productId) {
+      setTrackedSelection(prev => prev ? {
+        ...prev,
+        availableImeis: Array.isArray(detail.imeis) ? detail.imeis : [],
+        availableSerials: Array.isArray(detail.serials) ? detail.serials : [],
+        selectedImeis: prev.selectedImeis.filter(imei => Array.isArray(detail.imeis) && detail.imeis.includes(imei)),
+        selectedSerials: prev.selectedSerials.filter(serial => Array.isArray(detail.serials) && detail.serials.includes(serial))
+      } : prev)
+    }
+
+    return detail
+  }
+
+  const addNormalProductItem = (product: Product, detail: ProductDetailResponse) => {
+    setItems(prev => [
+      ...prev,
+      {
+        productId: product.id,
+        name: product.name,
+        quantity: 1,
+        stockAtSource: Number(product.stock || 0),
+        availableBatches: detail.batches || [],
+        availableImeis: detail.imeis || [],
+        availableSerials: detail.serials || []
+      }
+    ])
+    resetCreateProductSearch()
+  }
+
+  const addTrackedItems = () => {
+    if (!trackedSelection) return
+
+    const selectedValues = trackedSelection.productType === 'IMEI'
+      ? trackedSelection.selectedImeis
+      : trackedSelection.selectedSerials
+
+    if (selectedValues.length === 0) {
+      return alert(`Seleccione al menos un ${trackedSelection.productType === 'IMEI' ? 'IMEI' : 'serie'}`)
+    }
+
+    setItems(prev => [
+      ...prev,
+      ...selectedValues.map(value => ({
+        productId: trackedSelection.product.id,
+        name: trackedSelection.product.name,
+        quantity: 1,
+        stockAtSource: 1,
+        imei: trackedSelection.productType === 'IMEI' ? value : undefined,
+        serial: trackedSelection.productType === 'SERIAL' ? value : undefined,
+        availableImeis: trackedSelection.availableImeis,
+        availableSerials: trackedSelection.availableSerials
+      }))
+    ])
+
+    resetCreateProductSearch()
+  }
 
   const loadWarehouses = async () => {
     try {
@@ -124,6 +263,7 @@ export default function Transfers() {
 
   const handleCreateSearchProducts = async (term: string) => {
     setCreateSearchTerm(term)
+    setTrackedSelection(null)
     if (!term || term.length < 2) {
       setCreateSearchResults([])
       return
@@ -136,19 +276,13 @@ export default function Transfers() {
 
     setLoadingSearch(true)
     try {
-      // Fetch products with stock relative to SOURCE warehouse
       const res = await api.get('/products', { 
           params: { 
               search: term, 
               warehouseId: sourceId 
           } 
       })
-      // Client-side filter if API doesn't support search param yet, or just rely on API
-      // Assuming /products returns all, we filter here for now
-      const filtered = res.data.filter((p: Product) => 
-          p.name.toLowerCase().includes(term.toLowerCase()) || 
-          p.sku?.toLowerCase().includes(term.toLowerCase())
-      )
+      const filtered = (res.data as Product[]).filter((p: Product) => Number(p.stock || 0) > 0)
       setCreateSearchResults(filtered)
     } catch (err) {
       console.error(err)
@@ -157,37 +291,48 @@ export default function Transfers() {
     }
   }
 
-  const addItem = (product: Product) => {
-    // Check basic duplicate (only if no special details needed yet)
-    // Actually we need to fetch details first if it's special type
-    
-    // Fetch details if needed
-    const fetchDetails = async () => {
-        try {
-            const res = await api.get(`/products/${product.id}`, { params: { warehouseId: sourceId } })
-            const pData = res.data
-            
-            // If product has batches/imei/serial, we might need a modal or expanded row
-            // For simplicity, let's add to list and let user select details in the table row
-            
-            setItems(prev => [...prev, {
-                productId: product.id,
-                name: product.name,
-                quantity: 1,
-                stockAtSource: product.stock,
-                availableBatches: pData.batches || [],
-                availableImeis: pData.imeis || [],
-                availableSerials: pData.serials || []
-            }])
-            setCreateSearchTerm('')
-            setCreateSearchResults([])
-        } catch (err) {
-            console.error(err)
-            alert('Error al cargar detalles del producto')
-        }
+  const addItem = async (product: Product) => {
+    if (!sourceId) return
+
+    setLoadingProductId(product.id)
+    try {
+      const productDetail = await fetchProductDetail(product.id)
+      if (!productDetail) {
+        return
+      }
+      const productType = String(productDetail.productType || product.productType || 'GENERAL').toUpperCase()
+
+      if (productType === 'IMEI') {
+        setTrackedSelection({
+          product,
+          productType: 'IMEI',
+          availableImeis: productDetail.imeis || [],
+          availableSerials: [],
+          selectedImeis: [],
+          selectedSerials: []
+        })
+        return
+      }
+
+      if (productType === 'SERIAL') {
+        setTrackedSelection({
+          product,
+          productType: 'SERIAL',
+          availableImeis: [],
+          availableSerials: productDetail.serials || [],
+          selectedImeis: [],
+          selectedSerials: []
+        })
+        return
+      }
+
+      addNormalProductItem(product, productDetail)
+    } catch (err) {
+      console.error(err)
+      alert('Error al cargar detalles del producto')
+    } finally {
+      setLoadingProductId(null)
     }
-    
-    fetchDetails()
   }
 
   const updateItemDetail = (index: number, field: string, value: any) => {
@@ -199,9 +344,25 @@ export default function Transfers() {
       }))
   }
 
-  const updateItemQty = (productId: number, qty: number) => {
-    // Actually using index for updates now to support multiple same-product rows (for different imeis/series)
-    // But keeping this for now, though logic should move to updateItemDetail
+  const toggleTrackedValue = (value: string) => {
+    if (!trackedSelection) return
+
+    if (trackedSelection.productType === 'IMEI') {
+      setTrackedSelection(prev => prev ? {
+        ...prev,
+        selectedImeis: prev.selectedImeis.includes(value)
+          ? prev.selectedImeis.filter(current => current !== value)
+          : [...prev.selectedImeis, value]
+      } : prev)
+      return
+    }
+
+    setTrackedSelection(prev => prev ? {
+      ...prev,
+      selectedSerials: prev.selectedSerials.includes(value)
+        ? prev.selectedSerials.filter(current => current !== value)
+        : [...prev.selectedSerials, value]
+    } : prev)
   }
 
   const handleSubmit = async () => {
@@ -213,6 +374,14 @@ export default function Transfers() {
     }
     
     // Validate selections
+    const selectedImeis = items.map(item => item.imei).filter((value): value is string => Boolean(value))
+    const selectedSerials = items.map(item => item.serial).filter((value): value is string => Boolean(value))
+    if (new Set(selectedImeis).size !== selectedImeis.length) {
+      return alert('Hay IMEIs repetidos en la transferencia')
+    }
+    if (new Set(selectedSerials).size !== selectedSerials.length) {
+      return alert('Hay series repetidas en la transferencia')
+    }
     for (const item of items) {
         if (item.availableBatches?.length && !item.batchNo) {
             return alert(`Seleccione lote para ${item.name}`)
@@ -226,6 +395,31 @@ export default function Transfers() {
     }
 
     try {
+      const uniqueProductIds = [...new Set(items.map(item => item.productId))]
+      for (const productId of uniqueProductIds) {
+        const freshDetail = await refreshItemAvailability(productId)
+        if (!freshDetail) {
+          return alert('No se pudo validar disponibilidad actual del producto')
+        }
+      }
+
+      for (const item of items) {
+        if (item.imei) {
+          const freshDetail = await fetchProductDetail(item.productId)
+          const latestImeis = Array.isArray(freshDetail?.imeis) ? freshDetail.imeis : []
+          if (!latestImeis.includes(item.imei)) {
+            return alert(`El IMEI ${item.imei} ya no está disponible para transferir`)
+          }
+        }
+        if (item.serial) {
+          const freshDetail = await fetchProductDetail(item.productId)
+          const latestSerials = Array.isArray(freshDetail?.serials) ? freshDetail.serials : []
+          if (!latestSerials.includes(item.serial)) {
+            return alert(`La serie ${item.serial} ya no está disponible para transferir`)
+          }
+        }
+      }
+
       const payload = {
         source_warehouse_id: sourceId,
         destination_warehouse_id: destId,
@@ -248,6 +442,7 @@ export default function Transfers() {
       setDestId(null)
       setItems([])
       setNotes('')
+      resetCreateProductSearch()
     } catch (err: any) {
       console.error(err)
       alert(err.response?.data?.error || 'Error al realizar transferencia')
@@ -369,6 +564,7 @@ export default function Transfers() {
                   onChange={e => {
                       setSourceId(Number(e.target.value))
                       setItems([])
+                      resetCreateProductSearch()
                   }}
                 >
                   <option value="">Seleccionar...</option>
@@ -410,7 +606,7 @@ export default function Transfers() {
             <label className="label">Agregar Productos (Búsqueda en Origen)</label>
             <input 
               className="input"
-              placeholder={sourceId ? "Buscar por nombre o SKU..." : "Seleccione almacén origen primero"}
+              placeholder={sourceId ? "Buscar por código, nombre, SKU o descripción..." : "Seleccione almacén origen primero"}
               value={createSearchTerm}
               onChange={e => handleCreateSearchProducts(e.target.value)}
               disabled={!sourceId}
@@ -421,14 +617,90 @@ export default function Transfers() {
                 {createSearchResults.map(p => (
                   <div 
                     key={p.id} 
-                    style={{ padding: 8, borderBottom: '1px solid var(--border)', cursor: 'pointer', display: 'flex', justifyContent: 'space-between' }}
-                    onClick={() => addItem(p)}
+                    style={{ padding: 8, borderBottom: '1px solid var(--border)', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', gap: 12 }}
+                    onClick={() => void addItem(p)}
                     className="hover:bg-gray-100 dark:hover:bg-gray-800"
                   >
-                    <span>{p.name}</span>
+                    <div>
+                      <div style={{ fontWeight: 600 }}>{p.name}</div>
+                      <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                        {[p.productCode ? `COD: ${p.productCode}` : '', p.sku ? `SKU: ${p.sku}` : '']
+                          .filter(Boolean)
+                          .join(' | ') || 'Sin código'}
+                      </div>
+                      {p.description && (
+                        <div style={{ fontSize: 12, color: 'var(--muted)' }}>{p.description}</div>
+                      )}
+                    </div>
                     <span style={{ fontWeight: 'bold' }}>Stock: {p.stock}</span>
                   </div>
                 ))}
+              </div>
+            )}
+            {createSearchTerm.length >= 2 && !loadingSearch && createSearchResults.length === 0 && (
+              <div style={{ marginTop: 8, color: 'var(--muted)', fontSize: 13 }}>
+                No se encontraron productos con stock disponible para esa búsqueda.
+              </div>
+            )}
+            {trackedSelection && (
+              <div style={{ marginTop: 12, border: '1px solid var(--border)', borderRadius: 10, padding: 12, background: 'var(--card, var(--panel, transparent))' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', marginBottom: 10 }}>
+                  <div>
+                    <div style={{ fontWeight: 700 }}>
+                      Seleccionar {trackedSelection.productType === 'IMEI' ? 'IMEIs' : 'series'} para {trackedSelection.product.name}
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                      Elija varios {trackedSelection.productType === 'IMEI' ? 'IMEIs' : 'series'} disponibles y agréguelos en una sola vez.
+                    </div>
+                  </div>
+                  <button className="btn-secondary" type="button" onClick={resetCreateProductSearch}>
+                    Cerrar
+                  </button>
+                </div>
+
+                <div style={{ maxHeight: 220, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 8, padding: 8 }}>
+                  {trackedSelection.productType === 'IMEI' && availableTrackedImeis.length === 0 && (
+                    <div style={{ color: 'var(--muted)', fontSize: 13 }}>
+                      No hay IMEIs disponibles para agregar o ya fueron seleccionados en la transferencia.
+                    </div>
+                  )}
+                  {trackedSelection.productType === 'SERIAL' && availableTrackedSerials.length === 0 && (
+                    <div style={{ color: 'var(--muted)', fontSize: 13 }}>
+                      No hay series disponibles para agregar o ya fueron seleccionadas en la transferencia.
+                    </div>
+                  )}
+
+                  {trackedSelection.productType === 'IMEI' && availableTrackedImeis.map(imei => (
+                    <label key={imei} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 4px', cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={trackedSelection.selectedImeis.includes(imei)}
+                        onChange={() => toggleTrackedValue(imei)}
+                      />
+                      <span>{imei}</span>
+                    </label>
+                  ))}
+
+                  {trackedSelection.productType === 'SERIAL' && availableTrackedSerials.map(serial => (
+                    <label key={serial} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 4px', cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={trackedSelection.selectedSerials.includes(serial)}
+                        onChange={() => toggleTrackedValue(serial)}
+                      />
+                      <span>{serial}</span>
+                    </label>
+                  ))}
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', marginTop: 10 }}>
+                  <div style={{ fontSize: 13, color: 'var(--muted)' }}>
+                    Seleccionados: {trackedSelection.productType === 'IMEI' ? trackedSelection.selectedImeis.length : trackedSelection.selectedSerials.length}
+                  </div>
+                  <button className="btn-primary" type="button" onClick={addTrackedItems}>
+                    Agregar seleccionados
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -448,7 +720,11 @@ export default function Transfers() {
               <tbody>
                 {items.map((item, index) => (
                   <tr key={`${item.productId}-${index}`}>
-                    <td>{item.name}</td>
+                    <td>
+                      <div>{item.name}</div>
+                      {item.imei && <div style={{ fontSize: 12, color: 'var(--muted)' }}>IMEI: {item.imei}</div>}
+                      {item.serial && <div style={{ fontSize: 12, color: 'var(--muted)' }}>Serie: {item.serial}</div>}
+                    </td>
                     <td>
                         {item.availableBatches && item.availableBatches.length > 0 && (
                             <select 
@@ -472,6 +748,8 @@ export default function Transfers() {
                             <select 
                                 className="input small"
                                 value={item.imei || ''}
+                                onClick={e => e.stopPropagation()}
+                                onFocus={() => { void refreshItemAvailability(item.productId) }}
                                 onChange={e => {
                                     updateItemDetail(index, 'imei', e.target.value)
                                     updateItemDetail(index, 'quantity', 1) // IMEI is always 1
@@ -479,9 +757,11 @@ export default function Transfers() {
                                 }}
                             >
                                 <option value="">Seleccionar IMEI...</option>
-                                {item.availableImeis.map((i: string) => (
+                                {item.availableImeis
+                                  .filter((i: string) => !items.some((other, otherIdx) => otherIdx !== index && other.imei === i))
+                                  .map((i: string) => (
                                     <option key={i} value={i}>{i}</option>
-                                ))}
+                                  ))}
                             </select>
                         )}
 
@@ -489,6 +769,8 @@ export default function Transfers() {
                             <select 
                                 className="input small"
                                 value={item.serial || ''}
+                                onClick={e => e.stopPropagation()}
+                                onFocus={() => { void refreshItemAvailability(item.productId) }}
                                 onChange={e => {
                                     updateItemDetail(index, 'serial', e.target.value)
                                     updateItemDetail(index, 'quantity', 1)
@@ -496,9 +778,11 @@ export default function Transfers() {
                                 }}
                             >
                                 <option value="">Seleccionar Serie...</option>
-                                {item.availableSerials.map((s: string) => (
+                                {item.availableSerials
+                                  .filter((s: string) => !items.some((other, otherIdx) => otherIdx !== index && other.serial === s))
+                                  .map((s: string) => (
                                     <option key={s} value={s}>{s}</option>
-                                ))}
+                                  ))}
                             </select>
                         )}
 

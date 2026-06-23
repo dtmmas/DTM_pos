@@ -18,6 +18,9 @@ export default function Layout() {
     setMobileMenuOpen(false)
   }, [location.pathname])
 
+  const canManageProducts = String(user?.role || '').toUpperCase() === 'ADMIN' || hasPermission('products:write')
+  const productsMenuLabel = canManageProducts ? 'Productos' : 'Catalogo de productos'
+
   const openPOSWindow = (event?: React.MouseEvent<HTMLButtonElement>) => {
     event?.preventDefault()
     event?.stopPropagation()
@@ -105,7 +108,7 @@ export default function Layout() {
               <span>CATÁLOGO</span>
             </button>
             <div className="nav-panel">
-              {hasPermission('products:read') && <Link to="/products">Productos</Link>}
+              {hasPermission('products:read') && <Link to="/products">{productsMenuLabel}</Link>}
               {hasPermission('customers:read') && <Link to="/customers">Clientes</Link>}
               {hasPermission('categories:read') && <Link to="/categories">Categorías</Link>}
               {hasPermission('brands:read') && <Link to="/brands">Marcas</Link>}
@@ -231,7 +234,7 @@ export default function Layout() {
         {(hasPermission('products:read') || hasPermission('customers:read') || hasPermission('categories:read') || hasPermission('brands:read') || hasPermission('departments:read') || hasPermission('units:read') || hasPermission('suppliers:read')) && (
           <div className="mobile-menu-section">
             <div className="mobile-menu-title">Catalogo</div>
-            {hasPermission('products:read') && <Link to="/products">Productos</Link>}
+            {hasPermission('products:read') && <Link to="/products">{productsMenuLabel}</Link>}
             {hasPermission('customers:read') && <Link to="/customers">Clientes</Link>}
             {hasPermission('categories:read') && <Link to="/categories">Categorías</Link>}
             {hasPermission('brands:read') && <Link to="/brands">Marcas</Link>}
