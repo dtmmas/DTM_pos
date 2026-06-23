@@ -130,6 +130,7 @@ Archivos incluidos:
 
 - `deploy/hostinger/nginx.conf.example`
 - `deploy/hostinger/server.env.example`
+ - `deploy/hostinger/update-vps.sh`
 - `server/ecosystem.config.cjs`
 
 ### 1. Preparar VPS
@@ -242,6 +243,13 @@ npm run build
 cd ../server
 npm install
 pm2 restart tiendadtmpos-api
+```
+
+Tambien puedes usar el script incluido:
+
+```bash
+cd /var/www/tiendadtmpos
+bash deploy/hostinger/update-vps.sh
 ```
 
 ### 10. Directorios persistentes
