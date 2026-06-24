@@ -32,6 +32,9 @@ interface Product {
 interface TransferItem {
   productId: number
   name: string
+  sku?: string
+  productCode?: string
+  description?: string
   quantity: number
   stockAtSource: number
   batchNo?: string
@@ -91,6 +94,8 @@ interface TransferDetailItem {
   product_id: number
   product_name: string
   sku?: string
+  product_code?: string
+  description?: string
   quantity: number
   batch_no?: string
   imei?: string
@@ -156,6 +161,8 @@ export default function Transfers() {
       <tr>
         <td>${escapePrintHtml(item.product_name)}</td>
         <td>${escapePrintHtml(item.sku || 'Sin SKU')}</td>
+        <td>${escapePrintHtml(item.product_code || 'Sin codigo')}</td>
+        <td>${escapePrintHtml(item.description || 'Sin descripcion')}</td>
         <td>${escapePrintHtml([
           item.batch_no ? `Lote: ${item.batch_no}` : '',
           item.imei ? `IMEI: ${item.imei}` : '',
@@ -231,13 +238,15 @@ export default function Transfers() {
                 <tr>
                   <th>Producto</th>
                   <th>SKU</th>
+                  <th>Codigo</th>
+                  <th>Descripcion</th>
                   <th>Detalle</th>
                   <th style="text-align:right;">Cantidad</th>
                   <th style="text-align:center;">Registro destino</th>
                 </tr>
               </thead>
               <tbody>
-                ${itemsRows || '<tr><td colspan="5" style="text-align:center;">Sin items</td></tr>'}
+                ${itemsRows || '<tr><td colspan="7" style="text-align:center;">Sin items</td></tr>'}
               </tbody>
             </table>
           </div>
@@ -357,6 +366,9 @@ export default function Transfers() {
       {
         productId: product.id,
         name: product.name,
+        sku: product.sku,
+        productCode: product.productCode,
+        description: product.description,
         quantity: 1,
         stockAtSource: Number(product.stock || 0),
         availableBatches: detail.batches || [],
@@ -383,6 +395,9 @@ export default function Transfers() {
       ...selectedValues.map(value => ({
         productId: trackedSelection.product.id,
         name: trackedSelection.product.name,
+        sku: trackedSelection.product.sku,
+        productCode: trackedSelection.product.productCode,
+        description: trackedSelection.product.description,
         quantity: 1,
         stockAtSource: 1,
         imei: trackedSelection.productType === 'IMEI' ? value : undefined,
@@ -942,7 +957,15 @@ export default function Transfers() {
                 {items.map((item, index) => (
                   <tr key={`${item.productId}-${index}`}>
                     <td>
-                      <div>{item.name}</div>
+                      <div style={{ fontWeight: 600 }}>{item.name}</div>
+                      <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                        {[item.productCode ? `COD: ${item.productCode}` : '', item.sku ? `SKU: ${item.sku}` : '']
+                          .filter(Boolean)
+                          .join(' | ') || 'Sin codigo'}
+                      </div>
+                      {item.description && (
+                        <div style={{ fontSize: 12, color: 'var(--muted)' }}>{item.description}</div>
+                      )}
                       {item.imei && <div style={{ fontSize: 12, color: 'var(--muted)' }}>IMEI: {item.imei}</div>}
                       {item.serial && <div style={{ fontSize: 12, color: 'var(--muted)' }}>Serie: {item.serial}</div>}
                     </td>
@@ -1135,7 +1158,14 @@ export default function Transfers() {
                     <tr key={item.id} style={{ borderTop: '1px solid var(--border)' }}>
                       <td style={{ padding: 12 }}>
                         <div style={{ fontWeight: 600 }}>{item.product_name}</div>
-                        <div style={{ fontSize: 12, color: 'var(--muted)' }}>{item.sku || 'Sin SKU'}</div>
+                        <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                          {[item.product_code ? `COD: ${item.product_code}` : '', item.sku ? `SKU: ${item.sku}` : '']
+                            .filter(Boolean)
+                            .join(' | ') || 'Sin codigo'}
+                        </div>
+                        {item.description && (
+                          <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>{item.description}</div>
+                        )}
                       </td>
                       <td style={{ padding: 12, fontSize: 13 }}>
                         {[

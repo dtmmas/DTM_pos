@@ -120,7 +120,7 @@ router.get('/:id', authMiddleware, async (req, res) => {
     const transfer = rows[0]
     
     const [items] = await pool.query(`
-      SELECT ti.*, p.name as product_name, p.sku, p.image_url
+      SELECT ti.*, p.name as product_name, p.sku, p.product_code, p.description, p.image_url
       FROM transfer_items ti
       JOIN products p ON ti.product_id = p.id
       WHERE ti.transfer_id = ?
