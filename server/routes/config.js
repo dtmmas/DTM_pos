@@ -1,8 +1,11 @@
 import express from 'express'
 import fs from 'fs'
+import os from 'os'
 import path from 'path'
 import multer from 'multer'
 import mysql from 'mysql2'
+import { execFile } from 'child_process'
+import { promisify } from 'util'
 import { authMiddleware, roleMiddleware } from '../auth.js'
 import { getPool } from '../db.js'
 import { dataDir, uploadsDir } from '../paths.js'
@@ -11,6 +14,7 @@ const router = express.Router()
 const cfgPath = path.join(dataDir, 'config.json')
 const backupsDir = path.join(dataDir, 'backups')
 const upload = multer({ dest: uploadsDir })
+const execFileAsync = promisify(execFile)
 
 function ensureSeed() {
   if (!fs.existsSync(cfgPath)) {
@@ -35,6 +39,41 @@ function buildBackupFilename() {
   ].join('-')
 
   return `backup-${stamp}.sql`
+}
+
+function buildArchiveFilename(prefix) {
+  const now = new Date()
+  const pad = value => String(value).padStart(2, '0')
+  const stamp = [
+    now.getFullYear(),
+    pad(now.getMonth() + 1),
+    pad(now.getDate())
+  ].join('-') + '_' + [
+    pad(now.getHours()),
+    pad(now.getMinutes()),
+    pad(now.getSeconds())
+  ].join('-')
+
+  return `${prefix}-${stamp}.tar.gz`
+}
+
+async function createTarGz({ cwd, outputPath, entries }) {
+  if (!Array.isArray(entries) || entries.length === 0) {
+    throw new Error('No hay archivos para incluir en el backup')
+  }
+
+  try {
+    await execFileAsync('tar', ['-czf', outputPath, ...entries], {
+      cwd,
+      windowsHide: true,
+      maxBuffer: 20 * 1024 * 1024
+    })
+  } catch (error) {
+    if (error?.code === 'ENOENT') {
+      throw new Error('La utilidad tar no está disponible en el servidor')
+    }
+    throw error
+  }
 }
 
 async function generateDatabaseDump(pool) {
@@ -88,6 +127,56 @@ async function generateDatabaseDump(pool) {
   return lines.join('\n')
 }
 
+async function buildFullBackupArchive(pool) {
+  fs.mkdirSync(backupsDir, { recursive: true })
+
+  const archiveName = buildArchiveFilename('backup-completo')
+  const archivePath = path.join(backupsDir, archiveName)
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'dtmpos-backup-'))
+  const packageDir = path.join(tempRoot, 'backup-completo')
+
+  try {
+    fs.mkdirSync(packageDir, { recursive: true })
+
+    const dumpContent = await generateDatabaseDump(pool)
+    fs.writeFileSync(path.join(packageDir, 'database.sql'), dumpContent, 'utf-8')
+
+    if (fs.existsSync(uploadsDir)) {
+      fs.cpSync(uploadsDir, path.join(packageDir, 'uploads'), { recursive: true })
+    }
+
+    if (fs.existsSync(cfgPath)) {
+      fs.copyFileSync(cfgPath, path.join(packageDir, 'config.json'))
+    }
+
+    fs.writeFileSync(
+      path.join(packageDir, 'README.txt'),
+      [
+        'DTMPos backup completo',
+        `Generado: ${new Date().toISOString()}`,
+        '',
+        'Contenido:',
+        '- database.sql: respaldo de la base de datos',
+        '- uploads/: imagenes y archivos subidos',
+        '- config.json: configuracion del sistema',
+        '',
+        'Para restaurar las imagenes, copia la carpeta uploads dentro de server/uploads del proyecto.'
+      ].join('\n'),
+      'utf-8'
+    )
+
+    await createTarGz({
+      cwd: tempRoot,
+      outputPath: archivePath,
+      entries: ['backup-completo']
+    })
+
+    return { archiveName, archivePath }
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true })
+  }
+}
+
 router.get('/', async (req, res) => {
   try {
     const pool = await getPool()
@@ -121,6 +210,18 @@ router.get('/backup', authMiddleware, roleMiddleware(['ADMIN']), async (req, res
     console.error('Config BACKUP error:', err)
     const reason = err?.message ? `: ${err.message}` : ''
     return res.status(500).json({ error: `No se pudo generar el backup de la base de datos${reason}` })
+  }
+})
+
+router.get('/backup/full', authMiddleware, roleMiddleware(['ADMIN']), async (req, res) => {
+  try {
+    const pool = await getPool()
+    const { archiveName, archivePath } = await buildFullBackupArchive(pool)
+    return res.download(archivePath, archiveName)
+  } catch (err) {
+    console.error('Config FULL BACKUP error:', err)
+    const reason = err?.message ? `: ${err.message}` : ''
+    return res.status(500).json({ error: `No se pudo generar el backup completo${reason}` })
   }
 })
 

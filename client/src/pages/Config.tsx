@@ -13,6 +13,7 @@ export default function Config() {
   const [logoFile, setLogoFile] = useState<File | null>(null)
   const [saving, setSaving] = useState(false)
   const [downloadingBackup, setDownloadingBackup] = useState(false)
+  const [downloadingFullBackup, setDownloadingFullBackup] = useState(false)
 
   useEffect(() => {
     fetchConfig()
@@ -49,15 +50,14 @@ export default function Config() {
     }
   }
 
-  const downloadBackup = async () => {
-    setDownloadingBackup(true)
+  const downloadFile = async (url: string, fallbackFilename: string, defaultError: string) => {
     try {
-      const response = await api.get('/config/backup', { responseType: 'blob' })
-      const blob = new Blob([response.data], { type: 'application/sql;charset=utf-8' })
+      const response = await api.get(url, { responseType: 'blob' })
+      const blob = new Blob([response.data], { type: String(response.headers?.['content-type'] || 'application/octet-stream') })
       const downloadUrl = URL.createObjectURL(blob)
       const contentDisposition = String(response.headers?.['content-disposition'] || '')
       const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/)
-      const filename = filenameMatch?.[1] || `backup-${Date.now()}.sql`
+      const filename = filenameMatch?.[1] || fallbackFilename
 
       const anchor = document.createElement('a')
       anchor.href = downloadUrl
@@ -68,7 +68,7 @@ export default function Config() {
       URL.revokeObjectURL(downloadUrl)
     } catch (err: any) {
       console.error(err)
-      let errorMessage = 'No se pudo generar el backup'
+      let errorMessage = defaultError
 
       try {
         const data = err?.response?.data
@@ -90,8 +90,24 @@ export default function Config() {
       }
 
       alert(errorMessage)
+    }
+  }
+
+  const downloadBackup = async () => {
+    setDownloadingBackup(true)
+    try {
+      await downloadFile('/config/backup', `backup-${Date.now()}.sql`, 'No se pudo generar el backup SQL')
     } finally {
       setDownloadingBackup(false)
+    }
+  }
+
+  const downloadFullBackup = async () => {
+    setDownloadingFullBackup(true)
+    try {
+      await downloadFile('/config/backup/full', `backup-completo-${Date.now()}.tar.gz`, 'No se pudo generar el backup completo')
+    } finally {
+      setDownloadingFullBackup(false)
     }
   }
 
@@ -131,13 +147,21 @@ export default function Config() {
 
         {isAdmin && (
           <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
-            <h3 style={{ marginTop: 0, marginBottom: 10 }}>Backup de base de datos</h3>
+            <h3 style={{ marginTop: 0, marginBottom: 10 }}>Backups del sistema</h3>
             <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>
-              Genera un respaldo SQL completo de la base de datos y lo descarga en tu equipo. Esta opción está disponible solo para administrador.
+              Puedes descargar un respaldo SQL de la base de datos o un backup completo con base de datos, imágenes y configuración. Esta opción está disponible solo para administrador.
             </div>
-            <button type="button" className="secondary-btn" onClick={downloadBackup} disabled={downloadingBackup}>
-              {downloadingBackup ? 'Generando backup...' : 'Descargar backup SQL'}
-            </button>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              <button type="button" className="secondary-btn" onClick={downloadBackup} disabled={downloadingBackup || downloadingFullBackup}>
+                {downloadingBackup ? 'Generando backup SQL...' : 'Descargar backup SQL'}
+              </button>
+              <button type="button" className="primary-btn" onClick={downloadFullBackup} disabled={downloadingBackup || downloadingFullBackup}>
+                {downloadingFullBackup ? 'Generando backup completo...' : 'Descargar backup completo'}
+              </button>
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 10 }}>
+              El backup completo incluye `database.sql`, carpeta `uploads` y `config.json`, para restaurar también las imágenes del sistema.
+            </div>
           </div>
         )}
       </div>
