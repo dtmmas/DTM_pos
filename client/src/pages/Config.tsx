@@ -27,6 +27,35 @@ interface TrackedInventoryAuditResponse {
   mismatches: TrackedInventoryAuditItem[]
 }
 
+interface TrackedInventoryAutoCorrectedItem {
+  productId: number
+  productType: string
+  productCode?: string
+  sku?: string
+  name: string
+  targetWarehouseId: number
+  targetWarehouseName: string
+  movedCount: number
+  trackedItems: string[]
+}
+
+interface TrackedInventoryAutoCorrectSkippedItem {
+  productId: number
+  productCode?: string
+  sku?: string
+  name: string
+  reason: string
+}
+
+interface TrackedInventoryAutoCorrectResponse {
+  generatedAt: string
+  correctedCount: number
+  skippedCount: number
+  corrected: TrackedInventoryAutoCorrectedItem[]
+  skipped: TrackedInventoryAutoCorrectSkippedItem[]
+  auditAfter: TrackedInventoryAuditResponse
+}
+
 export default function Config() {
   const { config, fetchConfig } = useConfigStore()
   const user = useAuthStore(s => s.user)
@@ -39,7 +68,9 @@ export default function Config() {
   const [downloadingBackup, setDownloadingBackup] = useState(false)
   const [downloadingFullBackup, setDownloadingFullBackup] = useState(false)
   const [runningTrackedAudit, setRunningTrackedAudit] = useState(false)
+  const [runningTrackedAutoCorrect, setRunningTrackedAutoCorrect] = useState(false)
   const [trackedAudit, setTrackedAudit] = useState<TrackedInventoryAuditResponse | null>(null)
+  const [trackedAutoCorrect, setTrackedAutoCorrect] = useState<TrackedInventoryAutoCorrectResponse | null>(null)
 
   useEffect(() => {
     fetchConfig()
@@ -142,6 +173,7 @@ export default function Config() {
     try {
       const response = await api.get('/config/audit/tracked-inventory')
       setTrackedAudit(response.data as TrackedInventoryAuditResponse)
+      setTrackedAutoCorrect(null)
       if (Number(response.data?.mismatchCount || 0) === 0) {
         alert('No se detectaron inconsistencias entre stock y series/IMEI disponibles')
       }
@@ -150,6 +182,32 @@ export default function Config() {
       alert(err?.response?.data?.error || 'No se pudo ejecutar la auditoria de series e IMEI')
     } finally {
       setRunningTrackedAudit(false)
+    }
+  }
+
+  const runTrackedInventoryAutoCorrect = async () => {
+    const confirmed = window.confirm('Se intentaran corregir solo los casos faciles y seguros de series e IMEI. Deseas continuar?')
+    if (!confirmed) return
+
+    setRunningTrackedAutoCorrect(true)
+    try {
+      const response = await api.post('/config/audit/tracked-inventory/autocorrect')
+      const result = response.data as TrackedInventoryAutoCorrectResponse
+      setTrackedAutoCorrect(result)
+      setTrackedAudit(result.auditAfter)
+
+      if (Number(result.correctedCount || 0) === 0 && Number(result.skippedCount || 0) === 0) {
+        alert('No se detectaron inconsistencias para autocorregir')
+      } else if (Number(result.correctedCount || 0) === 0) {
+        alert('No se realizaron correcciones automaticas. Revisa los casos omitidos.')
+      } else {
+        alert(`Autocorreccion completada. Casos corregidos: ${result.correctedCount}`)
+      }
+    } catch (err: any) {
+      console.error(err)
+      alert(err?.response?.data?.error || 'No se pudo autocorregir los casos faciles de series e IMEI')
+    } finally {
+      setRunningTrackedAutoCorrect(false)
     }
   }
 
@@ -204,13 +262,25 @@ export default function Config() {
                 type="button"
                 className="secondary-btn"
                 onClick={runTrackedInventoryAudit}
-                disabled={downloadingBackup || downloadingFullBackup || runningTrackedAudit}
+                disabled={downloadingBackup || downloadingFullBackup || runningTrackedAudit || runningTrackedAutoCorrect}
               >
                 {runningTrackedAudit ? 'Auditando series e IMEI...' : 'Auditar series e IMEI'}
+              </button>
+              <button
+                type="button"
+                className="primary-btn"
+                onClick={runTrackedInventoryAutoCorrect}
+                disabled={downloadingBackup || downloadingFullBackup || runningTrackedAudit || runningTrackedAutoCorrect}
+              >
+                {runningTrackedAutoCorrect ? 'Autocorrigiendo casos faciles...' : 'Autocorregir casos faciles'}
               </button>
             </div>
             <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 10 }}>
               El backup completo incluye `database.sql`, carpeta `uploads` y `config.json`, para restaurar también las imágenes del sistema.
+            </div>
+
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>
+              La autocorrección solo mueve series o IMEI `AVAILABLE` cuando todo el stock positivo del producto está concentrado en un solo almacén y la cantidad coincide exactamente.
             </div>
 
             {trackedAudit && (
@@ -241,6 +311,60 @@ export default function Config() {
                       </div>
                     ))}
                   </div>
+                )}
+              </div>
+            )}
+
+            {trackedAutoCorrect && (
+              <div style={{ marginTop: 16, padding: 14, borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg)' }}>
+                <div style={{ fontWeight: 600, marginBottom: 6 }}>Resultado de autocorrección</div>
+                <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 10 }}>
+                  Ejecutada: {new Date(trackedAutoCorrect.generatedAt).toLocaleString()} | Corregidos: {trackedAutoCorrect.correctedCount} | Omitidos: {trackedAutoCorrect.skippedCount} | Inconsistencias restantes: {trackedAutoCorrect.auditAfter.mismatchCount}
+                </div>
+
+                {trackedAutoCorrect.corrected.length > 0 && (
+                  <div style={{ marginTop: 8 }}>
+                    <div style={{ fontWeight: 600, marginBottom: 8 }}>Casos corregidos</div>
+                    <div style={{ display: 'grid', gap: 10 }}>
+                      {trackedAutoCorrect.corrected.map(item => (
+                        <div key={item.productId} style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 10, background: 'var(--card)' }}>
+                          <div style={{ fontWeight: 600 }}>{item.name}</div>
+                          <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+                            {item.productCode ? `COD: ${item.productCode}` : 'Sin codigo'} | {item.sku ? `SKU: ${item.sku}` : 'Sin SKU'} | Tipo: {item.productType}
+                          </div>
+                          <div style={{ fontSize: 13, marginTop: 8 }}>
+                            Movidos: {item.movedCount} | Destino: {item.targetWarehouseName}
+                          </div>
+                          {item.trackedItems.length > 0 && (
+                            <div style={{ fontSize: 13, marginTop: 6 }}>
+                              {item.trackedItems.join(', ')}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {trackedAutoCorrect.skipped.length > 0 && (
+                  <div style={{ marginTop: 14 }}>
+                    <div style={{ fontWeight: 600, marginBottom: 8 }}>Casos omitidos</div>
+                    <div style={{ display: 'grid', gap: 10 }}>
+                      {trackedAutoCorrect.skipped.map(item => (
+                        <div key={item.productId} style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 10, background: 'var(--card)' }}>
+                          <div style={{ fontWeight: 600 }}>{item.name}</div>
+                          <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+                            {item.productCode ? `COD: ${item.productCode}` : 'Sin codigo'} | {item.sku ? `SKU: ${item.sku}` : 'Sin SKU'}
+                          </div>
+                          <div style={{ fontSize: 13, marginTop: 8 }}>{item.reason}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {trackedAutoCorrect.corrected.length === 0 && trackedAutoCorrect.skipped.length === 0 && (
+                  <div style={{ fontSize: 13 }}>No hubo inconsistencias que requirieran autocorrección.</div>
                 )}
               </div>
             )}
