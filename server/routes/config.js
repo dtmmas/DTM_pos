@@ -119,7 +119,8 @@ router.get('/backup', authMiddleware, roleMiddleware(['ADMIN']), async (req, res
     return res.send(dumpContent)
   } catch (err) {
     console.error('Config BACKUP error:', err)
-    return res.status(500).json({ error: 'No se pudo generar el backup de la base de datos' })
+    const reason = err?.message ? `: ${err.message}` : ''
+    return res.status(500).json({ error: `No se pudo generar el backup de la base de datos${reason}` })
   }
 })
 

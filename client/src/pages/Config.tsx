@@ -68,7 +68,28 @@ export default function Config() {
       URL.revokeObjectURL(downloadUrl)
     } catch (err: any) {
       console.error(err)
-      alert(err?.response?.data?.error || 'No se pudo generar el backup')
+      let errorMessage = 'No se pudo generar el backup'
+
+      try {
+        const data = err?.response?.data
+        if (data instanceof Blob) {
+          const text = await data.text()
+          try {
+            const parsed = JSON.parse(text)
+            errorMessage = parsed?.error || parsed?.message || text || errorMessage
+          } catch {
+            errorMessage = text || errorMessage
+          }
+        } else if (typeof data === 'string' && data.trim()) {
+          errorMessage = data
+        } else if (data?.error) {
+          errorMessage = data.error
+        }
+      } catch {
+        // noop
+      }
+
+      alert(errorMessage)
     } finally {
       setDownloadingBackup(false)
     }
