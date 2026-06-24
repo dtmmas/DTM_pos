@@ -9,6 +9,7 @@ import { promisify } from 'util'
 import { authMiddleware, roleMiddleware } from '../auth.js'
 import { getPool } from '../db.js'
 import { dataDir, uploadsDir } from '../paths.js'
+import { auditTrackedInventoryConsistency } from '../services/tracked_inventory_audit.js'
 
 const router = express.Router()
 const cfgPath = path.join(dataDir, 'config.json')
@@ -222,6 +223,18 @@ router.get('/backup/full', authMiddleware, roleMiddleware(['ADMIN']), async (req
     console.error('Config FULL BACKUP error:', err)
     const reason = err?.message ? `: ${err.message}` : ''
     return res.status(500).json({ error: `No se pudo generar el backup completo${reason}` })
+  }
+})
+
+router.get('/audit/tracked-inventory', authMiddleware, roleMiddleware(['ADMIN']), async (req, res) => {
+  try {
+    const pool = await getPool()
+    const result = await auditTrackedInventoryConsistency(pool)
+    return res.json(result)
+  } catch (err) {
+    console.error('Config TRACKED AUDIT error:', err)
+    const reason = err?.message ? `: ${err.message}` : ''
+    return res.status(500).json({ error: `No se pudo ejecutar la auditoria de series e IMEI${reason}` })
   }
 })
 

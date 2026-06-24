@@ -24,6 +24,7 @@ import usersRouter from './routes/users.js'
 import transfersRouter from './routes/transfers.js'
 import cashRegistersRouter from './routes/cash_registers.js'
 import { envPath, uploadsDir } from './paths.js'
+import { auditTrackedInventoryConsistency, logTrackedInventoryAudit } from './services/tracked_inventory_audit.js'
 
 dotenv.config({ path: envPath })
 const app = express()
@@ -77,8 +78,13 @@ app.use('/api/cash-registers', cashRegistersRouter)
 // Start server only if DB connects
 ;(async () => {
   try {
-    await getPool()
+    const pool = await getPool()
     console.log('MySQL connected')
+    auditTrackedInventoryConsistency(pool)
+      .then(logTrackedInventoryAudit)
+      .catch(err => {
+        console.error('[tracked-audit] No se pudo ejecutar la auditoria automatica:', err?.message || err)
+      })
     app.listen(PORT, HOST, () => {
       const publicHost = HOST === '0.0.0.0' ? 'localhost' : HOST
       console.log(`API running on http://${publicHost}:${PORT}`)

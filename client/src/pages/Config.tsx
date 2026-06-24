@@ -3,6 +3,30 @@ import { api } from '../api'
 import { useAuthStore } from '../store/auth'
 import { useConfigStore } from '../store/config'
 
+interface TrackedInventoryAuditDifference {
+  warehouseId: number
+  warehouseName: string
+  stockQty: number
+  trackedQty: number
+  trackedItems?: string
+}
+
+interface TrackedInventoryAuditItem {
+  productId: number
+  productType: string
+  productCode?: string
+  sku?: string
+  name: string
+  differences: TrackedInventoryAuditDifference[]
+}
+
+interface TrackedInventoryAuditResponse {
+  generatedAt: string
+  productCount: number
+  mismatchCount: number
+  mismatches: TrackedInventoryAuditItem[]
+}
+
 export default function Config() {
   const { config, fetchConfig } = useConfigStore()
   const user = useAuthStore(s => s.user)
@@ -14,6 +38,8 @@ export default function Config() {
   const [saving, setSaving] = useState(false)
   const [downloadingBackup, setDownloadingBackup] = useState(false)
   const [downloadingFullBackup, setDownloadingFullBackup] = useState(false)
+  const [runningTrackedAudit, setRunningTrackedAudit] = useState(false)
+  const [trackedAudit, setTrackedAudit] = useState<TrackedInventoryAuditResponse | null>(null)
 
   useEffect(() => {
     fetchConfig()
@@ -111,6 +137,22 @@ export default function Config() {
     }
   }
 
+  const runTrackedInventoryAudit = async () => {
+    setRunningTrackedAudit(true)
+    try {
+      const response = await api.get('/config/audit/tracked-inventory')
+      setTrackedAudit(response.data as TrackedInventoryAuditResponse)
+      if (Number(response.data?.mismatchCount || 0) === 0) {
+        alert('No se detectaron inconsistencias entre stock y series/IMEI disponibles')
+      }
+    } catch (err: any) {
+      console.error(err)
+      alert(err?.response?.data?.error || 'No se pudo ejecutar la auditoria de series e IMEI')
+    } finally {
+      setRunningTrackedAudit(false)
+    }
+  }
+
   return (
     <div style={{ padding: 20 }}>
       <div style={{ maxWidth: 600, background: 'var(--modal)', border: '1px solid var(--border)', borderRadius: 12, padding: 20 }}>
@@ -158,10 +200,50 @@ export default function Config() {
               <button type="button" className="primary-btn" onClick={downloadFullBackup} disabled={downloadingBackup || downloadingFullBackup}>
                 {downloadingFullBackup ? 'Generando backup completo...' : 'Descargar backup completo'}
               </button>
+              <button
+                type="button"
+                className="secondary-btn"
+                onClick={runTrackedInventoryAudit}
+                disabled={downloadingBackup || downloadingFullBackup || runningTrackedAudit}
+              >
+                {runningTrackedAudit ? 'Auditando series e IMEI...' : 'Auditar series e IMEI'}
+              </button>
             </div>
             <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 10 }}>
               El backup completo incluye `database.sql`, carpeta `uploads` y `config.json`, para restaurar también las imágenes del sistema.
             </div>
+
+            {trackedAudit && (
+              <div style={{ marginTop: 16, padding: 14, borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg)' }}>
+                <div style={{ fontWeight: 600, marginBottom: 6 }}>Auditoria de series e IMEI</div>
+                <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 10 }}>
+                  Generada: {new Date(trackedAudit.generatedAt).toLocaleString()} | Productos revisados: {trackedAudit.productCount} | Inconsistencias: {trackedAudit.mismatchCount}
+                </div>
+
+                {trackedAudit.mismatchCount === 0 ? (
+                  <div style={{ fontSize: 13 }}>No se detectaron inconsistencias entre stock y series/IMEI disponibles.</div>
+                ) : (
+                  <div style={{ display: 'grid', gap: 10 }}>
+                    {trackedAudit.mismatches.map(item => (
+                      <div key={item.productId} style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 10, background: 'var(--card)' }}>
+                        <div style={{ fontWeight: 600 }}>{item.name}</div>
+                        <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+                          {item.productCode ? `COD: ${item.productCode}` : 'Sin codigo'} | {item.sku ? `SKU: ${item.sku}` : 'Sin SKU'} | Tipo: {item.productType}
+                        </div>
+                        <div style={{ marginTop: 8, display: 'grid', gap: 6 }}>
+                          {item.differences.map(diff => (
+                            <div key={`${item.productId}-${diff.warehouseId}`} style={{ fontSize: 13 }}>
+                              <strong>{diff.warehouseName}</strong>: stock {diff.stockQty} | disponibles {diff.trackedQty}
+                              {diff.trackedItems ? ` | ${diff.trackedItems}` : ''}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>

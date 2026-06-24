@@ -22,6 +22,7 @@ interface Product {
   name: string
   sku: string
   productCode?: string
+  description?: string
   price: number
   cost?: number
   stock: number
@@ -34,6 +35,12 @@ interface Product {
 interface Batch {
   batchNo: string
   expiryDate: string
+  quantity: number
+}
+
+interface WarehouseStock {
+  warehouseId: number
+  warehouseName: string
   quantity: number
 }
 
@@ -95,6 +102,8 @@ export default function InventoryMovements() {
   })
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [currentWarehouseStock, setCurrentWarehouseStock] = useState<number | null>(null)
+  const [productWarehouseStocks, setProductWarehouseStocks] = useState<WarehouseStock[]>([])
+  const [productWarehouseStockMap, setProductWarehouseStockMap] = useState<Record<number, WarehouseStock[]>>({})
   const [availableAdjustImeis, setAvailableAdjustImeis] = useState<string[]>([])
   const [availableAdjustSerials, setAvailableAdjustSerials] = useState<string[]>([])
 
@@ -165,6 +174,44 @@ export default function InventoryMovements() {
     if (activeTab === 'products' || activeTab === 'kardex') loadProducts()
   }, [activeTab])
 
+  useEffect(() => {
+    if (activeTab !== 'products' || products.length === 0) return
+
+    const missingProducts = products.filter(product => !productWarehouseStockMap[product.id])
+    if (missingProducts.length === 0) return
+
+    let cancelled = false
+
+    const loadProductStocks = async () => {
+      try {
+        const entries = await Promise.all(
+          missingProducts.map(async product => {
+            const stocks = await getProductWarehouseStock(product.id)
+            return [product.id, Array.isArray(stocks) ? stocks : []] as const
+          })
+        )
+
+        if (cancelled) return
+
+        setProductWarehouseStockMap(prev => {
+          const next = { ...prev }
+          for (const [productId, stocks] of entries) {
+            next[productId] = stocks
+          }
+          return next
+        })
+      } catch (err) {
+        if (!cancelled) console.error(err)
+      }
+    }
+
+    void loadProductStocks()
+
+    return () => {
+      cancelled = true
+    }
+  }, [activeTab, products, productWarehouseStockMap])
+
   // Load history when tab is active or filters change
   useEffect(() => {
     if (activeTab === 'history') loadHistory()
@@ -172,28 +219,41 @@ export default function InventoryMovements() {
 
   // Load specific warehouse stock when product/warehouse changes in modal
   useEffect(() => {
-    if (showAdjust && selectedProduct && adjustForm.warehouseId) {
+    if (showAdjust && selectedProduct) {
       let cancelled = false
       setCurrentWarehouseStock(null)
+      setProductWarehouseStocks([])
       setAvailableAdjustImeis([])
       setAvailableAdjustSerials([])
 
       const fetchStockAndDetails = async () => {
         try {
-          const [stocks, detailRes] = await Promise.all([
-            getProductWarehouseStock(selectedProduct.id),
-            api.get(`/products/${selectedProduct.id}`, { params: { warehouseId: adjustForm.warehouseId } })
-          ])
+          const requests: Promise<any>[] = [getProductWarehouseStock(selectedProduct.id)]
+          if (adjustForm.warehouseId) {
+            requests.push(api.get(`/products/${selectedProduct.id}`, { params: { warehouseId: adjustForm.warehouseId } }))
+          }
+
+          const [stocks, detailRes] = await Promise.all(requests)
           if (cancelled) return
 
-          const whStock = stocks.find(s => String(s.warehouseId) === String(adjustForm.warehouseId))
-          setCurrentWarehouseStock(whStock ? whStock.quantity : 0)
-          setAvailableAdjustImeis(Array.isArray(detailRes.data?.imeis) ? detailRes.data.imeis : [])
-          setAvailableAdjustSerials(Array.isArray(detailRes.data?.serials) ? detailRes.data.serials : [])
+          const normalizedStocks = Array.isArray(stocks) ? stocks : []
+          setProductWarehouseStocks(normalizedStocks)
+
+          if (adjustForm.warehouseId) {
+            const whStock = normalizedStocks.find((stock: WarehouseStock) => String(stock.warehouseId) === String(adjustForm.warehouseId))
+            setCurrentWarehouseStock(whStock ? whStock.quantity : 0)
+            setAvailableAdjustImeis(Array.isArray(detailRes?.data?.imeis) ? detailRes.data.imeis : [])
+            setAvailableAdjustSerials(Array.isArray(detailRes?.data?.serials) ? detailRes.data.serials : [])
+          } else {
+            setCurrentWarehouseStock(null)
+            setAvailableAdjustImeis([])
+            setAvailableAdjustSerials([])
+          }
         } catch (err) {
           if (cancelled) return
           console.error(err)
           setCurrentWarehouseStock(null)
+          setProductWarehouseStocks([])
           setAvailableAdjustImeis([])
           setAvailableAdjustSerials([])
         }
@@ -204,6 +264,7 @@ export default function InventoryMovements() {
       }
     } else {
       setCurrentWarehouseStock(null)
+      setProductWarehouseStocks([])
       setAvailableAdjustImeis([])
       setAvailableAdjustSerials([])
     }
@@ -313,6 +374,7 @@ export default function InventoryMovements() {
     // Pre-select first warehouse if available
     const defaultWh = warehouses.length > 0 ? String(warehouses[0].id) : ''
     setCurrentWarehouseStock(null)
+    setProductWarehouseStocks([])
     setAvailableAdjustImeis([])
     setAvailableAdjustSerials([])
     
@@ -488,7 +550,8 @@ export default function InventoryMovements() {
     return products.filter(p => 
       p.name.toLowerCase().includes(q) || 
       p.sku.toLowerCase().includes(q) ||
-      (p.productCode && p.productCode.toLowerCase().includes(q))
+      (p.productCode && p.productCode.toLowerCase().includes(q)) ||
+      (p.description && p.description.toLowerCase().includes(q))
     )
   }, [products, productQuery])
 
@@ -503,6 +566,58 @@ export default function InventoryMovements() {
     brands.forEach(b => map[b.id] = b.name)
     return map
   }, [brands])
+
+  const renderWarehouseStockBreakdown = (productId: number, globalStock: number, compact = false) => {
+    const stocks = productWarehouseStockMap[productId] || []
+
+    return (
+      <div style={{ display: 'grid', gap: compact ? 2 : 4 }}>
+        {stocks.length > 0 ? (
+          stocks.map(stock => (
+            <div
+              key={`${productId}-${stock.warehouseId}`}
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                gap: 12,
+                fontSize: compact ? 11 : 12,
+                color: 'var(--muted)'
+              }}
+            >
+              <span>{stock.warehouseName}</span>
+              <strong style={{ color: Number(stock.quantity || 0) > 0 ? '#10b981' : '#ef4444' }}>
+                {stock.quantity}
+              </strong>
+            </div>
+          ))
+        ) : (
+          <div style={{ fontSize: compact ? 11 : 12, color: 'var(--muted)' }}>
+            Cargando stock por tienda...
+          </div>
+        )}
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            gap: 12,
+            fontSize: compact ? 11 : 12,
+            paddingTop: compact ? 4 : 6,
+            borderTop: '1px dashed var(--border)'
+          }}
+        >
+          <span style={{ color: 'var(--muted)', fontWeight: 600 }}>Stock Global</span>
+          <strong style={{ color: globalStock > 0 ? '#10b981' : '#ef4444' }}>{globalStock}</strong>
+        </div>
+      </div>
+    )
+  }
+
+  const totalAdjustStock = useMemo(() => {
+    if (productWarehouseStocks.length > 0) {
+      return productWarehouseStocks.reduce((sum, stock) => sum + Number(stock.quantity || 0), 0)
+    }
+    return Number(selectedProduct?.stock || 0)
+  }, [productWarehouseStocks, selectedProduct])
 
   return (
     <div className="page-container" style={{ padding: 20 }}>
@@ -624,7 +739,7 @@ export default function InventoryMovements() {
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16, alignItems: 'center' }}>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               <input 
-                placeholder="Buscar producto por nombre, SKU o código..." 
+                placeholder="Buscar por codigo, SKU, nombre o detalle..." 
                 value={productQuery} 
                 onChange={e => setProductQuery(e.target.value)} 
                 style={{ width: 400, maxWidth: '100%', padding: 8, borderRadius: 6, border: '1px solid var(--border)' }}
@@ -670,6 +785,10 @@ export default function InventoryMovements() {
                         <div style={{ flex: 1, overflow: 'hidden' }}>
                           <div style={{ fontWeight: 600, fontSize: 14, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={p.name}>{p.name}</div>
                           <div style={{ fontSize: 12, color: 'var(--muted)' }}>SKU: {p.sku}</div>
+                          <div style={{ fontSize: 12, color: 'var(--muted)' }}>COD: {p.productCode || '-'}</div>
+                          <div style={{ fontSize: 12, color: 'var(--muted)', display: '-webkit-box', WebkitLineClamp: 2 as any, WebkitBoxOrient: 'vertical', overflow: 'hidden' }} title={p.description || ''}>
+                            DETALLE: {p.description || '-'}
+                          </div>
                           <div style={{ fontSize: 12, color: 'var(--muted)' }}>
                             {p.categoryId ? categoryMap[p.categoryId] : ''} 
                             {p.brandId ? ` • ${brandMap[p.brandId]}` : ''}
@@ -677,9 +796,9 @@ export default function InventoryMovements() {
                         </div>
                       </div>
                       
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--surface)', padding: '6px 10px', borderRadius: 8 }}>
-                        <div style={{ fontSize: 12, color: 'var(--muted)' }}>Stock Global</div>
-                        <div style={{ fontWeight: 'bold', color: p.stock > 0 ? '#10b981' : '#ef4444' }}>{p.stock}</div>
+                      <div style={{ background: 'var(--surface)', padding: '8px 10px', borderRadius: 8 }}>
+                        <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600, marginBottom: 6 }}>Stock por tienda</div>
+                        {renderWarehouseStockBreakdown(p.id, p.stock)}
                       </div>
 
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -712,7 +831,7 @@ export default function InventoryMovements() {
                         <th style={{ padding: 10, textAlign: 'left' }}>Categoría / Marca</th>
                         <th style={{ padding: 10, textAlign: 'right' }}>Costo</th>
                         <th style={{ padding: 10, textAlign: 'right' }}>Precio</th>
-                        <th style={{ padding: 10, textAlign: 'center' }}>Stock Global</th>
+                        <th style={{ padding: 10, textAlign: 'left' }}>Stock por tienda / Global</th>
                         <th style={{ padding: 10, textAlign: 'right' }}>Acciones</th>
                       </tr>
                     </thead>
@@ -725,6 +844,10 @@ export default function InventoryMovements() {
                               <div>
                                 <div style={{ fontWeight: 500 }}>{p.name}</div>
                                 <div style={{ fontSize: 11, color: 'var(--muted)' }}>SKU: {p.sku}</div>
+                                <div style={{ fontSize: 11, color: 'var(--muted)' }}>COD: {p.productCode || '-'}</div>
+                                <div style={{ fontSize: 11, color: 'var(--muted)', maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={p.description || ''}>
+                                  DETALLE: {p.description || '-'}
+                                </div>
                               </div>
                             </div>
                           </td>
@@ -735,8 +858,8 @@ export default function InventoryMovements() {
                           </td>
                           <td style={{ padding: 10, textAlign: 'right', fontSize: 13 }}>{formatMoney(p.cost || 0, currency)}</td>
                           <td style={{ padding: 10, textAlign: 'right', fontSize: 13 }}>{formatMoney(p.price, currency)}</td>
-                          <td style={{ padding: 10, textAlign: 'center', fontWeight: 600, color: p.stock > 0 ? '#10b981' : '#ef4444' }}>
-                            {p.stock}
+                          <td style={{ padding: 10, minWidth: 260 }}>
+                            {renderWarehouseStockBreakdown(p.id, p.stock, true)}
                           </td>
                           <td style={{ padding: 10, textAlign: 'right' }}>
                             <button 
@@ -1040,8 +1163,33 @@ export default function InventoryMovements() {
                     <div>
                       <div style={{ fontWeight: 600 }}>{selectedProduct.name}</div>
                       <div style={{ fontSize: 12, color: 'var(--muted)' }}>SKU: {selectedProduct.sku}</div>
-                      <div style={{ fontSize: 12, fontWeight: 'bold', color: selectedProduct.stock > 0 ? '#10b981' : '#ef4444' }}>
-                        Stock Global: {selectedProduct.stock}
+                      {productWarehouseStocks.length > 0 && (
+                        <div style={{ marginTop: 8, display: 'grid', gap: 4 }}>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>
+                            Stock por tienda
+                          </div>
+                          {productWarehouseStocks.map(stock => (
+                            <div
+                              key={stock.warehouseId}
+                              style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                gap: 12,
+                                fontSize: 12,
+                                padding: '4px 0',
+                                borderBottom: '1px dashed var(--border)'
+                              }}
+                            >
+                              <span>{stock.warehouseName}</span>
+                              <strong style={{ color: Number(stock.quantity || 0) > 0 ? '#10b981' : '#ef4444' }}>
+                                {stock.quantity}
+                              </strong>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <div style={{ fontSize: 12, fontWeight: 'bold', color: totalAdjustStock > 0 ? '#10b981' : '#ef4444', marginTop: 8 }}>
+                        Stock Global: {totalAdjustStock}
                       </div>
                     </div>
                 </div>
