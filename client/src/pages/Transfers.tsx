@@ -4,6 +4,15 @@ import { useAuthStore } from '../store/auth'
 import { formatDateTime } from '../utils/date'
 import MobileBarcodeScannerButton from '../components/MobileBarcodeScannerButton'
 
+function escapePrintHtml(value: string) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
 interface Warehouse {
   id: number
   name: string
@@ -132,6 +141,114 @@ export default function Transfers() {
     const normalized = String(movementType || '').toUpperCase()
     if (normalized === 'INITIAL') return 'INICIAL'
     return 'TRASLADO'
+  }
+
+  const printTransferDetail = (detail: TransferDetail) => {
+    if (typeof window === 'undefined') return
+
+    const printWindow = window.open('', '_blank', 'width=1100,height=800')
+    if (!printWindow) {
+      alert('El navegador bloqueó la ventana de impresión')
+      return
+    }
+
+    const itemsRows = detail.items.map(item => `
+      <tr>
+        <td>${escapePrintHtml(item.product_name)}</td>
+        <td>${escapePrintHtml(item.sku || 'Sin SKU')}</td>
+        <td>${escapePrintHtml([
+          item.batch_no ? `Lote: ${item.batch_no}` : '',
+          item.imei ? `IMEI: ${item.imei}` : '',
+          item.serial ? `Serie: ${item.serial}` : ''
+        ].filter(Boolean).join(' | ') || 'Sin detalle adicional')}</td>
+        <td style="text-align:right;">${Number(item.quantity || 0)}</td>
+        <td style="text-align:center;">${escapePrintHtml(getDestinationItemLabel(item.destination_movement_type))}</td>
+      </tr>
+    `).join('')
+
+    const notesBlock = detail.notes
+      ? `
+        <div class="section">
+          <div class="section-title">Notas</div>
+          <div class="notes">${escapePrintHtml(detail.notes)}</div>
+        </div>
+      `
+      : ''
+
+    printWindow.document.open()
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html lang="es">
+        <head>
+          <meta charset="UTF-8" />
+          <title>Transferencia #${detail.id}</title>
+          <style>
+            body { font-family: Arial, sans-serif; margin: 24px; color: #111827; }
+            h1 { margin: 0 0 6px; font-size: 24px; }
+            .subtitle { color: #4b5563; margin-bottom: 20px; }
+            .grid { display: grid; grid-template-columns: repeat(2, minmax(220px, 1fr)); gap: 12px; margin-bottom: 20px; }
+            .card { border: 1px solid #d1d5db; border-radius: 8px; padding: 12px; }
+            .label { font-size: 12px; color: #6b7280; margin-bottom: 4px; }
+            .value { font-size: 14px; font-weight: 700; }
+            .section { margin-top: 18px; }
+            .section-title { font-size: 14px; font-weight: 700; margin-bottom: 8px; }
+            table { width: 100%; border-collapse: collapse; }
+            th, td { border: 1px solid #d1d5db; padding: 10px; font-size: 13px; vertical-align: top; }
+            th { background: #f3f4f6; text-align: left; }
+            .notes { border: 1px solid #d1d5db; border-radius: 8px; padding: 12px; white-space: pre-wrap; }
+            @media print {
+              body { margin: 12px; }
+            }
+          </style>
+        </head>
+        <body>
+          <h1>Detalle de Transferencia #${detail.id}</h1>
+          <div class="subtitle">${escapePrintHtml(detail.source_warehouse_name)} -> ${escapePrintHtml(detail.destination_warehouse_name)} | ${escapePrintHtml(formatDateTime(detail.created_at))}</div>
+
+          <div class="grid">
+            <div class="card">
+              <div class="label">Origen</div>
+              <div class="value">${escapePrintHtml(detail.source_warehouse_name)}</div>
+            </div>
+            <div class="card">
+              <div class="label">Destino</div>
+              <div class="value">${escapePrintHtml(detail.destination_warehouse_name)}</div>
+            </div>
+            <div class="card">
+              <div class="label">Estado</div>
+              <div class="value">${escapePrintHtml(detail.status)}</div>
+            </div>
+            <div class="card">
+              <div class="label">Usuario</div>
+              <div class="value">${escapePrintHtml(detail.created_by_user || 'N/A')}</div>
+            </div>
+          </div>
+
+          <div class="section">
+            <div class="section-title">Items trasladados</div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Producto</th>
+                  <th>SKU</th>
+                  <th>Detalle</th>
+                  <th style="text-align:right;">Cantidad</th>
+                  <th style="text-align:center;">Registro destino</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${itemsRows || '<tr><td colspan="5" style="text-align:center;">Sin items</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+
+          ${notesBlock}
+        </body>
+      </html>
+    `)
+    printWindow.document.close()
+    printWindow.focus()
+    printWindow.print()
   }
 
   const filteredTransfers = transfers.filter(t => {
@@ -507,7 +624,7 @@ export default function Transfers() {
         {view === 'list' ? (
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
             <input 
-              placeholder="Buscar..." 
+              placeholder={isAdmin ? 'Buscar...' : 'Buscar traslados recibidos...'} 
               value={searchTerm} 
               onChange={e => setSearchTerm(e.target.value)} 
               style={{ padding: 8, borderRadius: 6, border: '1px solid var(--border)', width: 200 }}
@@ -544,6 +661,11 @@ export default function Transfers() {
 
       {view === 'list' ? (
         <div style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+          {!isAdmin && (
+            <div style={{ padding: 12, borderBottom: '1px solid var(--border)', background: 'var(--modal)', fontSize: 13, color: 'var(--muted)' }}>
+              Solo se muestran los traslados recibidos en tu tienda.
+            </div>
+          )}
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead style={{ background: 'var(--modal)' }}>
               <tr>
@@ -969,9 +1091,14 @@ export default function Transfers() {
                   {selectedTransferDetail.source_warehouse_name} {'->'} {selectedTransferDetail.destination_warehouse_name} | {formatDateTime(selectedTransferDetail.created_at)}
                 </div>
               </div>
-              <button className="btn-secondary" type="button" onClick={() => setSelectedTransferDetail(null)}>
-                Cerrar
-              </button>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <button className="btn-primary" type="button" onClick={() => printTransferDetail(selectedTransferDetail)}>
+                  Imprimir detalle
+                </button>
+                <button className="btn-secondary" type="button" onClick={() => setSelectedTransferDetail(null)}>
+                  Cerrar
+                </button>
+              </div>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginBottom: 16 }}>

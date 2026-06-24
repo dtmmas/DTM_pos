@@ -56,10 +56,10 @@ router.get('/', authMiddleware, async (req, res) => {
     const isAdmin = isAdminUser(req.user)
     const userWarehouseId = getUserWarehouseId(req.user)
     const whereClause = !isAdmin
-      ? (userWarehouseId ? 'WHERE t.source_warehouse_id = ? OR t.destination_warehouse_id = ?' : 'WHERE 1 = 0')
+      ? (userWarehouseId ? 'WHERE t.destination_warehouse_id = ?' : 'WHERE 1 = 0')
       : ''
     const params = !isAdmin
-      ? (userWarehouseId ? [userWarehouseId, userWarehouseId, Number(limit), Number(offset)] : [Number(limit), Number(offset)])
+      ? (userWarehouseId ? [userWarehouseId, Number(limit), Number(offset)] : [Number(limit), Number(offset)])
       : [Number(limit), Number(offset)]
 
     const [rows] = await pool.query(`
@@ -97,10 +97,10 @@ router.get('/:id', authMiddleware, async (req, res) => {
     const isAdmin = isAdminUser(req.user)
     const userWarehouseId = getUserWarehouseId(req.user)
     const whereClause = !isAdmin
-      ? (userWarehouseId ? 'AND (t.source_warehouse_id = ? OR t.destination_warehouse_id = ?)' : 'AND 1 = 0')
+      ? (userWarehouseId ? 'AND t.destination_warehouse_id = ?' : 'AND 1 = 0')
       : ''
     const params = !isAdmin
-      ? (userWarehouseId ? [id, userWarehouseId, userWarehouseId] : [id])
+      ? (userWarehouseId ? [id, userWarehouseId] : [id])
       : [id]
     
     const [rows] = await pool.query(`
