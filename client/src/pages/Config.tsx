@@ -56,6 +56,20 @@ interface TrackedInventoryAutoCorrectResponse {
   auditAfter: TrackedInventoryAuditResponse
 }
 
+interface RestoreBackupResponse {
+  ok: boolean
+  message: string
+  restored: {
+    database: boolean
+    uploads: boolean
+    config: boolean
+  }
+  safetyBackup?: {
+    archiveName: string
+    archivePath: string
+  }
+}
+
 export default function Config() {
   const { config, fetchConfig } = useConfigStore()
   const user = useAuthStore(s => s.user)
@@ -67,6 +81,11 @@ export default function Config() {
   const [saving, setSaving] = useState(false)
   const [downloadingBackup, setDownloadingBackup] = useState(false)
   const [downloadingFullBackup, setDownloadingFullBackup] = useState(false)
+  const [sqlRestoreFile, setSqlRestoreFile] = useState<File | null>(null)
+  const [fullRestoreFile, setFullRestoreFile] = useState<File | null>(null)
+  const [restoringSqlBackup, setRestoringSqlBackup] = useState(false)
+  const [restoringFullBackup, setRestoringFullBackup] = useState(false)
+  const [lastRestoreResult, setLastRestoreResult] = useState<RestoreBackupResponse | null>(null)
   const [runningTrackedAudit, setRunningTrackedAudit] = useState(false)
   const [runningTrackedAutoCorrect, setRunningTrackedAutoCorrect] = useState(false)
   const [trackedAudit, setTrackedAudit] = useState<TrackedInventoryAuditResponse | null>(null)
@@ -165,6 +184,87 @@ export default function Config() {
       await downloadFile('/config/backup/full', `backup-completo-${Date.now()}.tar.gz`, 'No se pudo generar el backup completo')
     } finally {
       setDownloadingFullBackup(false)
+    }
+  }
+
+  const restoreBackupFile = async ({
+    file,
+    endpoint,
+    defaultError,
+    confirmMessage
+  }: {
+    file: File | null
+    endpoint: string
+    defaultError: string
+    confirmMessage: string
+  }) => {
+    if (!file) {
+      alert('Debes seleccionar un archivo antes de restaurar')
+      return null
+    }
+
+    const confirmed = window.confirm(confirmMessage)
+    if (!confirmed) return null
+
+    try {
+      const fd = new FormData()
+      fd.append('backup', file)
+      const response = await api.post(endpoint, fd, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        }
+      })
+
+      const result = response.data as RestoreBackupResponse
+      setLastRestoreResult(result)
+      await fetchConfig()
+      return result
+    } catch (err: any) {
+      console.error(err)
+      let errorMessage = defaultError
+      if (err?.response?.data?.error) {
+        errorMessage = err.response.data.error
+      }
+      alert(errorMessage)
+      return null
+    }
+  }
+
+  const restoreSqlBackup = async () => {
+    setRestoringSqlBackup(true)
+    try {
+      const result = await restoreBackupFile({
+        file: sqlRestoreFile,
+        endpoint: '/config/backup/restore/sql',
+        defaultError: 'No se pudo restaurar el backup SQL',
+        confirmMessage: 'Se restaurará la base de datos desde el archivo SQL seleccionado. Antes de continuar, el sistema generará un backup de seguridad. Deseas continuar?'
+      })
+
+      if (result?.ok) {
+        alert(`${result.message}. Backup de seguridad creado: ${result.safetyBackup?.archiveName || 'si'}`)
+        setSqlRestoreFile(null)
+      }
+    } finally {
+      setRestoringSqlBackup(false)
+    }
+  }
+
+  const restoreFullBackup = async () => {
+    setRestoringFullBackup(true)
+    try {
+      const result = await restoreBackupFile({
+        file: fullRestoreFile,
+        endpoint: '/config/backup/restore/full',
+        defaultError: 'No se pudo restaurar el backup completo',
+        confirmMessage: 'Se restaurará la base de datos, uploads y config.json desde el backup completo seleccionado. Antes de continuar, el sistema generará un backup de seguridad. Deseas continuar?'
+      })
+
+      if (result?.ok) {
+        alert(`${result.message}. Backup de seguridad creado: ${result.safetyBackup?.archiveName || 'si'}`)
+        setFullRestoreFile(null)
+      }
+    } finally {
+      setRestoringFullBackup(false)
     }
   }
 
@@ -277,6 +377,82 @@ export default function Config() {
             </div>
             <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 10 }}>
               El backup completo incluye `database.sql`, carpeta `uploads` y `config.json`, para restaurar también las imágenes del sistema.
+            </div>
+
+            <div style={{ marginTop: 16, padding: 14, borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg)' }}>
+              <div style={{ fontWeight: 600, marginBottom: 6 }}>Restaurar backup</div>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>
+                La restauración está disponible solo para administrador. Antes de aplicar el archivo seleccionado, el sistema crea automáticamente un backup de seguridad del estado actual.
+              </div>
+
+              <div style={{ display: 'grid', gap: 14 }}>
+                <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 10, background: 'var(--card)' }}>
+                  <div style={{ fontWeight: 600, marginBottom: 6 }}>Restaurar solo base de datos</div>
+                  <input
+                    type="file"
+                    accept=".sql"
+                    onChange={e => setSqlRestoreFile(e.target.files?.[0] || null)}
+                    disabled={restoringSqlBackup || restoringFullBackup}
+                  />
+                  {sqlRestoreFile && (
+                    <div className="file-name" style={{ marginTop: 6 }}>{sqlRestoreFile.name}</div>
+                  )}
+                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
+                    Usa un archivo `.sql` generado por el sistema si solo quieres restaurar la base de datos.
+                  </div>
+                  <div style={{ marginTop: 10 }}>
+                    <button
+                      type="button"
+                      className="secondary-btn"
+                      onClick={restoreSqlBackup}
+                      disabled={!sqlRestoreFile || restoringSqlBackup || restoringFullBackup || downloadingBackup || downloadingFullBackup}
+                    >
+                      {restoringSqlBackup ? 'Restaurando backup SQL...' : 'Restaurar backup SQL'}
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 10, background: 'var(--card)' }}>
+                  <div style={{ fontWeight: 600, marginBottom: 6 }}>Restaurar backup completo</div>
+                  <input
+                    type="file"
+                    accept=".tar.gz,.tgz"
+                    onChange={e => setFullRestoreFile(e.target.files?.[0] || null)}
+                    disabled={restoringSqlBackup || restoringFullBackup}
+                  />
+                  {fullRestoreFile && (
+                    <div className="file-name" style={{ marginTop: 6 }}>{fullRestoreFile.name}</div>
+                  )}
+                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
+                    Usa un `.tar.gz` o `.tgz` generado por el backup completo para restaurar base de datos, imágenes y configuración.
+                  </div>
+                  <div style={{ marginTop: 10 }}>
+                    <button
+                      type="button"
+                      className="primary-btn"
+                      onClick={restoreFullBackup}
+                      disabled={!fullRestoreFile || restoringSqlBackup || restoringFullBackup || downloadingBackup || downloadingFullBackup}
+                    >
+                      {restoringFullBackup ? 'Restaurando backup completo...' : 'Restaurar backup completo'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {lastRestoreResult && (
+                <div style={{ marginTop: 14, border: '1px solid var(--border)', borderRadius: 8, padding: 10, background: 'var(--card)' }}>
+                  <div style={{ fontWeight: 600, marginBottom: 6 }}>Última restauración</div>
+                  <div style={{ fontSize: 13 }}>{lastRestoreResult.message}</div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
+                    Base de datos: {lastRestoreResult.restored.database ? 'sí' : 'no'} | Uploads: {lastRestoreResult.restored.uploads ? 'sí' : 'no'} | Config: {lastRestoreResult.restored.config ? 'sí' : 'no'}
+                  </div>
+                  {lastRestoreResult.safetyBackup?.archiveName && (
+                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
+                      Backup de seguridad: {lastRestoreResult.safetyBackup.archiveName}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>

@@ -14,7 +14,14 @@ import { auditTrackedInventoryConsistency, autoCorrectTrackedInventoryEasyCases 
 const router = express.Router()
 const cfgPath = path.join(dataDir, 'config.json')
 const backupsDir = path.join(dataDir, 'backups')
+const restoreUploadsDir = path.join(backupsDir, 'incoming')
 const upload = multer({ dest: uploadsDir })
+const restoreUpload = multer({
+  dest: restoreUploadsDir,
+  limits: {
+    fileSize: 1024 * 1024 * 1024
+  }
+})
 const execFileAsync = promisify(execFile)
 
 function ensureSeed() {
@@ -75,6 +82,80 @@ async function createTarGz({ cwd, outputPath, entries }) {
     }
     throw error
   }
+}
+
+async function extractTarGz({ archivePath, outputDir }) {
+  try {
+    await execFileAsync('tar', ['-xzf', archivePath, '-C', outputDir], {
+      windowsHide: true,
+      maxBuffer: 20 * 1024 * 1024
+    })
+  } catch (error) {
+    if (error?.code === 'ENOENT') {
+      throw new Error('La utilidad tar no está disponible en el servidor')
+    }
+    throw error
+  }
+}
+
+function getDatabaseRuntimeConfig() {
+  const host = process.env.DB_HOST || '127.0.0.1'
+  const port = Number(process.env.DB_PORT || 3306)
+  const user = process.env.DB_USER
+  const password = process.env.DB_PASSWORD
+  const database = process.env.DB_NAME
+
+  if (!user || !password || !database) {
+    throw new Error('Faltan variables de entorno para restaurar la base de datos')
+  }
+
+  return { host, port, user, password, database }
+}
+
+async function importDatabaseDump(sqlFilePath) {
+  if (!fs.existsSync(sqlFilePath)) {
+    throw new Error('No se encontró el archivo database.sql para restaurar')
+  }
+
+  const { host, port, user, password, database } = getDatabaseRuntimeConfig()
+
+  try {
+    await execFileAsync(
+      'mysql',
+      [
+        `--host=${host}`,
+        `--port=${port}`,
+        `--user=${user}`,
+        `--database=${database}`,
+        '-e',
+        `source ${sqlFilePath}`
+      ],
+      {
+        windowsHide: true,
+        maxBuffer: 20 * 1024 * 1024,
+        env: {
+          ...process.env,
+          MYSQL_PWD: password
+        }
+      }
+    )
+  } catch (error) {
+    if (error?.code === 'ENOENT') {
+      throw new Error('La utilidad mysql no está disponible en el servidor')
+    }
+    const stderr = String(error?.stderr || '').trim()
+    const stdout = String(error?.stdout || '').trim()
+    throw new Error(stderr || stdout || error?.message || 'No se pudo restaurar la base de datos')
+  }
+}
+
+function replacePathIfExists(sourcePath, targetPath) {
+  if (!fs.existsSync(sourcePath)) return false
+
+  fs.rmSync(targetPath, { recursive: true, force: true })
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true })
+  fs.cpSync(sourcePath, targetPath, { recursive: true })
+  return true
 }
 
 async function generateDatabaseDump(pool) {
@@ -178,6 +259,104 @@ async function buildFullBackupArchive(pool) {
   }
 }
 
+async function createSafetyBackup(pool, prefix) {
+  fs.mkdirSync(backupsDir, { recursive: true })
+
+  const archiveName = buildArchiveFilename(prefix)
+  const archivePath = path.join(backupsDir, archiveName)
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'dtmpos-pre-restore-'))
+  const packageDir = path.join(tempRoot, prefix)
+
+  try {
+    fs.mkdirSync(packageDir, { recursive: true })
+
+    const dumpContent = await generateDatabaseDump(pool)
+    fs.writeFileSync(path.join(packageDir, 'database.sql'), dumpContent, 'utf-8')
+
+    if (fs.existsSync(uploadsDir)) {
+      fs.cpSync(uploadsDir, path.join(packageDir, 'uploads'), { recursive: true })
+    }
+
+    if (fs.existsSync(cfgPath)) {
+      fs.copyFileSync(cfgPath, path.join(packageDir, 'config.json'))
+    }
+
+    await createTarGz({
+      cwd: tempRoot,
+      outputPath: archivePath,
+      entries: [prefix]
+    })
+
+    return { archiveName, archivePath }
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true })
+  }
+}
+
+async function restoreSqlBackupFile({ sqlFilePath, pool }) {
+  const safetyBackup = await createSafetyBackup(pool, 'pre-restore-sql')
+  await importDatabaseDump(sqlFilePath)
+
+  return {
+    restored: {
+      database: true,
+      uploads: false,
+      config: false
+    },
+    safetyBackup
+  }
+}
+
+function findRestorePackageRoot(extractedRoot) {
+  const directSql = path.join(extractedRoot, 'database.sql')
+  if (fs.existsSync(directSql)) return extractedRoot
+
+  const entries = fs.readdirSync(extractedRoot, { withFileTypes: true })
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue
+    const candidate = path.join(extractedRoot, entry.name)
+    if (fs.existsSync(path.join(candidate, 'database.sql'))) {
+      return candidate
+    }
+  }
+
+  return null
+}
+
+async function restoreFullBackupFile({ archivePath, pool }) {
+  const safetyBackup = await createSafetyBackup(pool, 'pre-restore-full')
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'dtmpos-restore-'))
+
+  try {
+    await extractTarGz({ archivePath, outputDir: tempRoot })
+
+    const packageRoot = findRestorePackageRoot(tempRoot)
+    if (!packageRoot) {
+      throw new Error('El backup completo no contiene un database.sql válido')
+    }
+
+    const sqlFilePath = path.join(packageRoot, 'database.sql')
+    const uploadsSource = path.join(packageRoot, 'uploads')
+    const configSource = path.join(packageRoot, 'config.json')
+
+    await importDatabaseDump(sqlFilePath)
+
+    const uploadsRestored = replacePathIfExists(uploadsSource, uploadsDir)
+    const configRestored = replacePathIfExists(configSource, cfgPath)
+
+    return {
+      restored: {
+        database: true,
+        uploads: uploadsRestored,
+        config: configRestored
+      },
+      safetyBackup
+    }
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true })
+  }
+}
+
 router.get('/', async (req, res) => {
   try {
     const pool = await getPool()
@@ -223,6 +402,77 @@ router.get('/backup/full', authMiddleware, roleMiddleware(['ADMIN']), async (req
     console.error('Config FULL BACKUP error:', err)
     const reason = err?.message ? `: ${err.message}` : ''
     return res.status(500).json({ error: `No se pudo generar el backup completo${reason}` })
+  }
+})
+
+router.post('/backup/restore/sql', authMiddleware, roleMiddleware(['ADMIN']), restoreUpload.single('backup'), async (req, res) => {
+  const uploadedFile = req.file
+
+  try {
+    if (!uploadedFile) {
+      return res.status(400).json({ error: 'Debes seleccionar un archivo SQL para restaurar' })
+    }
+
+    if (!String(uploadedFile.originalname || '').toLowerCase().endsWith('.sql')) {
+      return res.status(400).json({ error: 'El archivo debe tener extensión .sql' })
+    }
+
+    const pool = await getPool()
+    const result = await restoreSqlBackupFile({
+      sqlFilePath: uploadedFile.path,
+      pool
+    })
+
+    return res.json({
+      ok: true,
+      message: 'Base de datos restaurada correctamente',
+      restored: result.restored,
+      safetyBackup: result.safetyBackup
+    })
+  } catch (err) {
+    console.error('Config SQL RESTORE error:', err)
+    const reason = err?.message ? `: ${err.message}` : ''
+    return res.status(500).json({ error: `No se pudo restaurar el backup SQL${reason}` })
+  } finally {
+    if (uploadedFile?.path && fs.existsSync(uploadedFile.path)) {
+      fs.rmSync(uploadedFile.path, { force: true })
+    }
+  }
+})
+
+router.post('/backup/restore/full', authMiddleware, roleMiddleware(['ADMIN']), restoreUpload.single('backup'), async (req, res) => {
+  const uploadedFile = req.file
+
+  try {
+    if (!uploadedFile) {
+      return res.status(400).json({ error: 'Debes seleccionar un backup completo para restaurar' })
+    }
+
+    const fileName = String(uploadedFile.originalname || '').toLowerCase()
+    if (!fileName.endsWith('.tar.gz') && !fileName.endsWith('.tgz')) {
+      return res.status(400).json({ error: 'El archivo debe ser un .tar.gz o .tgz generado por el sistema' })
+    }
+
+    const pool = await getPool()
+    const result = await restoreFullBackupFile({
+      archivePath: uploadedFile.path,
+      pool
+    })
+
+    return res.json({
+      ok: true,
+      message: 'Backup completo restaurado correctamente',
+      restored: result.restored,
+      safetyBackup: result.safetyBackup
+    })
+  } catch (err) {
+    console.error('Config FULL RESTORE error:', err)
+    const reason = err?.message ? `: ${err.message}` : ''
+    return res.status(500).json({ error: `No se pudo restaurar el backup completo${reason}` })
+  } finally {
+    if (uploadedFile?.path && fs.existsSync(uploadedFile.path)) {
+      fs.rmSync(uploadedFile.path, { force: true })
+    }
   }
 })
 
