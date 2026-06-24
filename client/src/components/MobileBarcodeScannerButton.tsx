@@ -48,9 +48,14 @@ export default function MobileBarcodeScannerButton({
   const [isOpen, setIsOpen] = useState(false)
   const [isStarting, setIsStarting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [statusMessage, setStatusMessage] = useState('Coloca el codigo dentro del area marcada')
+  const [isTorchAvailable, setIsTorchAvailable] = useState(false)
+  const [isTorchEnabled, setIsTorchEnabled] = useState(false)
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const controlsRef = useRef<any>(null)
   const readerRef = useRef<any>(null)
+  const lastScanValueRef = useRef('')
+  const lastScanAtRef = useRef(0)
 
   useEffect(() => {
     setIsSupported(isMobileScannerSupported())
@@ -62,6 +67,9 @@ export default function MobileBarcodeScannerButton({
     let cancelled = false
 
     const stopScanner = () => {
+      setIsTorchAvailable(false)
+      setIsTorchEnabled(false)
+
       try {
         controlsRef.current?.stop?.()
       } catch {
@@ -89,6 +97,9 @@ export default function MobileBarcodeScannerButton({
     const startScanner = async () => {
       setIsStarting(true)
       setError(null)
+      setStatusMessage('Coloca el codigo dentro del area marcada')
+      lastScanValueRef.current = ''
+      lastScanAtRef.current = 0
 
       try {
         const { BrowserMultiFormatReader } = await import('@zxing/browser')
@@ -106,6 +117,22 @@ export default function MobileBarcodeScannerButton({
           const scannedValue = String(rawValue || '').trim()
           if (!scannedValue || cancelled) return
 
+          const now = Date.now()
+          if (
+            scannedValue === lastScanValueRef.current &&
+            now - lastScanAtRef.current < 1500
+          ) {
+            return
+          }
+
+          lastScanValueRef.current = scannedValue
+          lastScanAtRef.current = now
+          setStatusMessage(`Codigo detectado: ${scannedValue}`)
+
+          if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+            navigator.vibrate(120)
+          }
+
           stopScanner()
           setIsOpen(false)
           onDetected(scannedValue)
@@ -122,6 +149,7 @@ export default function MobileBarcodeScannerButton({
             videoRef.current,
             handleDetectedResult
           )
+          setIsTorchAvailable(Boolean(controlsRef.current?.switchTorch))
           return
         } catch {
           // Fallback for browsers that ignore facingMode or require explicit device selection.
@@ -137,9 +165,11 @@ export default function MobileBarcodeScannerButton({
           videoRef.current,
           handleDetectedResult
         )
+        setIsTorchAvailable(Boolean(controlsRef.current?.switchTorch))
       } catch (scanError: any) {
         if (!cancelled) {
           setError(scanError?.message || 'No se pudo abrir la camara del telefono')
+          setStatusMessage('No se pudo iniciar el lector')
         }
       } finally {
         if (!cancelled) {
@@ -155,6 +185,20 @@ export default function MobileBarcodeScannerButton({
       stopScanner()
     }
   }, [isOpen, onDetected])
+
+  const toggleTorch = async () => {
+    if (!controlsRef.current?.switchTorch) return
+
+    const nextValue = !isTorchEnabled
+    try {
+      await controlsRef.current.switchTorch(nextValue)
+      setIsTorchEnabled(nextValue)
+    } catch {
+      setError('Tu telefono no permitio activar la linterna')
+      setIsTorchAvailable(false)
+      setIsTorchEnabled(false)
+    }
+  }
 
   if (!isSupported) {
     return null
@@ -212,14 +256,21 @@ export default function MobileBarcodeScannerButton({
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, gap: 12 }}>
               <h3 style={{ margin: 0, fontSize: 18 }}>{modalTitle}</h3>
-              <button type="button" className="small-btn" onClick={() => setIsOpen(false)}>Cerrar</button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                {isTorchAvailable && (
+                  <button type="button" className="small-btn" onClick={() => void toggleTorch()}>
+                    {isTorchEnabled ? 'Linterna off' : 'Linterna on'}
+                  </button>
+                )}
+                <button type="button" className="small-btn" onClick={() => setIsOpen(false)}>Cerrar</button>
+              </div>
             </div>
 
             <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>
-              Apunta la camara al codigo de barras para buscar el producto automaticamente.
+              Apunta la camara al codigo de barras y mantenlo dentro de la guia para leerlo mas rapido.
             </div>
 
-            <div style={{ borderRadius: 12, overflow: 'hidden', background: '#000', minHeight: 260 }}>
+            <div style={{ position: 'relative', borderRadius: 12, overflow: 'hidden', background: '#000', minHeight: 260 }}>
               <video
                 ref={videoRef}
                 autoPlay
@@ -227,19 +278,74 @@ export default function MobileBarcodeScannerButton({
                 playsInline
                 style={{ width: '100%', height: 320, objectFit: 'cover', display: 'block' }}
               />
+              <div
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  pointerEvents: 'none',
+                }}
+              >
+                <div
+                  style={{
+                    position: 'relative',
+                    width: '82%',
+                    maxWidth: 320,
+                    height: 150,
+                    border: '2px solid rgba(255,255,255,0.92)',
+                    borderRadius: 16,
+                    boxShadow: '0 0 0 9999px rgba(0,0,0,0.28)',
+                    background: 'rgba(255,255,255,0.02)',
+                  }}
+                >
+                  <div
+                    style={{
+                      position: 'absolute',
+                      left: 10,
+                      right: 10,
+                      top: '50%',
+                      height: 3,
+                      borderRadius: 999,
+                      background: 'linear-gradient(90deg, rgba(34,197,94,0.15), rgba(34,197,94,1), rgba(34,197,94,0.15))',
+                      boxShadow: '0 0 12px rgba(34,197,94,0.85)',
+                      animation: 'scanner-line-move 2s ease-in-out infinite',
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div
+              style={{
+                marginTop: 12,
+                fontSize: 13,
+                color: error ? '#FCA5A5' : 'var(--muted)',
+                background: 'rgba(255,255,255,0.04)',
+                borderRadius: 10,
+                padding: '10px 12px',
+              }}
+            >
+              {error || statusMessage}
             </div>
 
             {isStarting && (
-              <div style={{ marginTop: 12, fontSize: 13, color: 'var(--muted)' }}>
+              <div style={{ marginTop: 8, fontSize: 13, color: 'var(--muted)' }}>
                 Activando camara...
               </div>
             )}
 
-            {error && (
-              <div style={{ marginTop: 12, fontSize: 13, color: '#FCA5A5' }}>
-                {error}
-              </div>
-            )}
+            <div style={{ marginTop: 8, fontSize: 12, color: 'var(--muted)' }}>
+              Consejo: acerca o aleja un poco el telefono hasta que el codigo quede nitido dentro del recuadro.
+            </div>
+
+            <style>{`
+              @keyframes scanner-line-move {
+                0%, 100% { transform: translateY(-48px); opacity: 0.85; }
+                50% { transform: translateY(48px); opacity: 1; }
+              }
+            `}</style>
           </div>
         </div>
       )}
