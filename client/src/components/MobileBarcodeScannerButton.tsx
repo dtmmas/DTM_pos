@@ -28,6 +28,15 @@ function pickRearCamera(devices: Array<{ deviceId: string; label?: string }>) {
     || null
 }
 
+async function getVideoInputDevices() {
+  if (!navigator.mediaDevices?.enumerateDevices) {
+    return []
+  }
+
+  const devices = await navigator.mediaDevices.enumerateDevices()
+  return devices.filter(device => device.kind === 'videoinput')
+}
+
 export default function MobileBarcodeScannerButton({
   onDetected,
   disabled = false,
@@ -88,30 +97,45 @@ export default function MobileBarcodeScannerButton({
         const reader = new BrowserMultiFormatReader()
         readerRef.current = reader
 
-        const devices = await reader.listVideoInputDevices()
-        if (cancelled) return
-
-        const preferredDevice = pickRearCamera(devices || [])
-        if (!preferredDevice?.deviceId) {
-          throw new Error('No se encontro una camara disponible')
-        }
-
         if (!videoRef.current) {
           throw new Error('No se pudo preparar la vista de la camara')
         }
 
-        controlsRef.current = await reader.decodeFromVideoDevice(
-          preferredDevice.deviceId,
-          videoRef.current,
-          result => {
-            const rawValue = result?.getText?.() || ''
-            const scannedValue = String(rawValue || '').trim()
-            if (!scannedValue || cancelled) return
+        const handleDetectedResult = (result: any) => {
+          const rawValue = result?.getText?.() || ''
+          const scannedValue = String(rawValue || '').trim()
+          if (!scannedValue || cancelled) return
 
-            stopScanner()
-            setIsOpen(false)
-            onDetected(scannedValue)
-          }
+          stopScanner()
+          setIsOpen(false)
+          onDetected(scannedValue)
+        }
+
+        try {
+          controlsRef.current = await reader.decodeFromConstraints(
+            {
+              audio: false,
+              video: {
+                facingMode: { ideal: 'environment' },
+              },
+            },
+            videoRef.current,
+            handleDetectedResult
+          )
+          return
+        } catch {
+          // Fallback for browsers that ignore facingMode or require explicit device selection.
+        }
+
+        const devices = await getVideoInputDevices()
+        if (cancelled) return
+
+        const preferredDevice = pickRearCamera(devices || [])
+
+        controlsRef.current = await reader.decodeFromVideoDevice(
+          preferredDevice?.deviceId,
+          videoRef.current,
+          handleDetectedResult
         )
       } catch (scanError: any) {
         if (!cancelled) {
