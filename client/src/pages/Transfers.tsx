@@ -129,6 +129,7 @@ export default function Transfers() {
   
   // Create Form Product Search
   const [createSearchTerm, setCreateSearchTerm] = useState('')
+  const [createSearchNotice, setCreateSearchNotice] = useState('')
   const [createSearchResults, setCreateSearchResults] = useState<Product[]>([])
   const [trackedSelection, setTrackedSelection] = useState<TrackedProductSelection | null>(null)
   const [selectedTransferDetail, setSelectedTransferDetail] = useState<TransferDetail | null>(null)
@@ -312,6 +313,7 @@ export default function Transfers() {
 
   const resetCreateProductSearch = () => {
     setCreateSearchTerm('')
+    setCreateSearchNotice('')
     setCreateSearchResults([])
     setTrackedSelection(null)
     setLoadingProductId(null)
@@ -361,6 +363,53 @@ export default function Transfers() {
   }
 
   const addNormalProductItem = (product: Product, detail: ProductDetailResponse) => {
+    const hasBatchTracking = Array.isArray(detail.batches) && detail.batches.length > 0
+    const alreadyExists = items.some(item => item.productId === product.id && !item.imei && !item.serial)
+    if (alreadyExists) {
+      const existingIndex = items.findIndex(item => item.productId === product.id && !item.imei && !item.serial)
+      const existingItem = existingIndex >= 0 ? items[existingIndex] : null
+
+      if (hasBatchTracking) {
+        const message = `El producto ${product.name} ya está en la lista. Como maneja lotes, ajusta el lote y cantidad en la fila existente o elimínala antes de volverlo a agregar.`
+        setCreateSearchNotice(message)
+        alert(message)
+        return
+      }
+
+      if (!existingItem) {
+        const message = `El producto ${product.name} ya está en la lista.`
+        setCreateSearchNotice(message)
+        alert(message)
+        return
+      }
+
+      const maxQty = Number(detail.stock || existingItem.stockAtSource || product.stock || 0)
+      if (existingItem.quantity >= maxQty) {
+        const message = `El producto ${product.name} ya alcanzó el stock disponible en la fila actual.`
+        setCreateSearchNotice(message)
+        alert(message)
+        return
+      }
+
+      const shouldMerge = window.confirm(`El producto ${product.name} ya está en la lista. ¿Deseas sumar 1 unidad a la fila existente?`)
+      if (!shouldMerge) {
+        setCreateSearchNotice(`El producto ${product.name} ya estaba en la lista. Puedes editar manualmente su cantidad.`)
+        return
+      }
+
+      setItems(prev => prev.map((item, index) => {
+        if (index !== existingIndex) return item
+        return {
+          ...item,
+          stockAtSource: maxQty,
+          quantity: Math.min(maxQty, Number(item.quantity || 0) + 1),
+        }
+      }))
+      setCreateSearchNotice(`Se sumó 1 unidad al producto ${product.name} en la fila existente.`)
+      resetCreateProductSearch()
+      return
+    }
+
     setItems(prev => [
       ...prev,
       {
@@ -370,7 +419,7 @@ export default function Transfers() {
         productCode: product.productCode,
         description: product.description,
         quantity: 1,
-        stockAtSource: Number(product.stock || 0),
+        stockAtSource: Number(detail.stock || product.stock || 0),
         availableBatches: detail.batches || [],
         availableImeis: detail.imeis || [],
         availableSerials: detail.serials || []
@@ -388,6 +437,19 @@ export default function Transfers() {
 
     if (selectedValues.length === 0) {
       return alert(`Seleccione al menos un ${trackedSelection.productType === 'IMEI' ? 'IMEI' : 'serie'}`)
+    }
+
+    const duplicatedSelections = selectedValues.filter(value =>
+      trackedSelection?.productType === 'IMEI'
+        ? items.some(item => item.productId === trackedSelection.product.id && item.imei === value)
+        : items.some(item => item.productId === trackedSelection.product.id && item.serial === value)
+    )
+
+    if (duplicatedSelections.length > 0) {
+      const message = `Algunos ${trackedSelection.productType === 'IMEI' ? 'IMEIs' : 'series'} ya estaban agregados en la lista. Selecciona solo identificadores nuevos para continuar.`
+      setCreateSearchNotice(message)
+      alert(message)
+      return
     }
 
     setItems(prev => [
@@ -475,6 +537,7 @@ export default function Transfers() {
     if (!sourceId) return
 
     setLoadingProductId(product.id)
+    setCreateSearchNotice('')
     try {
       const productDetail = await fetchProductDetail(product.id)
       if (!productDetail) {
@@ -483,6 +546,10 @@ export default function Transfers() {
       const productType = String(productDetail.productType || product.productType || 'GENERAL').toUpperCase()
 
       if (productType === 'IMEI') {
+        const existingItemsForProduct = items.filter(item => item.productId === product.id)
+        if (existingItemsForProduct.length > 0) {
+          setCreateSearchNotice(`El producto ${product.name} ya tiene IMEIs agregados. Solo se mostrarán IMEIs que aún no estén en la lista.`)
+        }
         setTrackedSelection({
           product,
           productType: 'IMEI',
@@ -495,6 +562,10 @@ export default function Transfers() {
       }
 
       if (productType === 'SERIAL') {
+        const existingItemsForProduct = items.filter(item => item.productId === product.id)
+        if (existingItemsForProduct.length > 0) {
+          setCreateSearchNotice(`El producto ${product.name} ya tiene series agregadas. Solo se mostrarán series que aún no estén en la lista.`)
+        }
         setTrackedSelection({
           product,
           productType: 'SERIAL',
@@ -876,6 +947,11 @@ export default function Transfers() {
             {createSearchTerm.length >= 2 && !loadingSearch && createSearchResults.length === 0 && (
               <div style={{ marginTop: 8, color: 'var(--muted)', fontSize: 13 }}>
                 No se encontraron productos con stock disponible para esa búsqueda.
+              </div>
+            )}
+            {createSearchNotice && (
+              <div style={{ marginTop: 8, color: '#854d0e', background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: 8, padding: '8px 10px', fontSize: 13 }}>
+                {createSearchNotice}
               </div>
             )}
             {trackedSelection && (

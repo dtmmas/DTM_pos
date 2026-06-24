@@ -1,14 +1,18 @@
 import { useEffect, useMemo, useState } from 'react'
 import { api } from '../api'
+import { useAuthStore } from '../store/auth'
 import { useConfigStore } from '../store/config'
 
 export default function Config() {
   const { config, fetchConfig } = useConfigStore()
+  const user = useAuthStore(s => s.user)
+  const isAdmin = String(user?.role || '').toUpperCase() === 'ADMIN'
   const [name, setName] = useState('')
   const [currency, setCurrency] = useState('USD')
   const [logoUrl, setLogoUrl] = useState('')
   const [logoFile, setLogoFile] = useState<File | null>(null)
   const [saving, setSaving] = useState(false)
+  const [downloadingBackup, setDownloadingBackup] = useState(false)
 
   useEffect(() => {
     fetchConfig()
@@ -45,6 +49,31 @@ export default function Config() {
     }
   }
 
+  const downloadBackup = async () => {
+    setDownloadingBackup(true)
+    try {
+      const response = await api.get('/config/backup', { responseType: 'blob' })
+      const blob = new Blob([response.data], { type: 'application/sql;charset=utf-8' })
+      const downloadUrl = URL.createObjectURL(blob)
+      const contentDisposition = String(response.headers?.['content-disposition'] || '')
+      const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/)
+      const filename = filenameMatch?.[1] || `backup-${Date.now()}.sql`
+
+      const anchor = document.createElement('a')
+      anchor.href = downloadUrl
+      anchor.download = filename
+      document.body.appendChild(anchor)
+      anchor.click()
+      document.body.removeChild(anchor)
+      URL.revokeObjectURL(downloadUrl)
+    } catch (err: any) {
+      console.error(err)
+      alert(err?.response?.data?.error || 'No se pudo generar el backup')
+    } finally {
+      setDownloadingBackup(false)
+    }
+  }
+
   return (
     <div style={{ padding: 20 }}>
       <div style={{ maxWidth: 600, background: 'var(--modal)', border: '1px solid var(--border)', borderRadius: 12, padding: 20 }}>
@@ -78,6 +107,18 @@ export default function Config() {
             <button type="submit" className="primary-btn" disabled={saving}>{saving ? 'Guardando...' : 'Guardar'}</button>
           </div>
         </form>
+
+        {isAdmin && (
+          <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
+            <h3 style={{ marginTop: 0, marginBottom: 10 }}>Backup de base de datos</h3>
+            <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>
+              Genera un respaldo SQL completo de la base de datos y lo descarga en tu equipo. Esta opción está disponible solo para administrador.
+            </div>
+            <button type="button" className="secondary-btn" onClick={downloadBackup} disabled={downloadingBackup}>
+              {downloadingBackup ? 'Generando backup...' : 'Descargar backup SQL'}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )

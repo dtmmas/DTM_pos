@@ -2,12 +2,14 @@ import express from 'express'
 import fs from 'fs'
 import path from 'path'
 import multer from 'multer'
+import mysql from 'mysql2'
 import { authMiddleware, roleMiddleware } from '../auth.js'
 import { getPool } from '../db.js'
 import { dataDir, uploadsDir } from '../paths.js'
 
 const router = express.Router()
 const cfgPath = path.join(dataDir, 'config.json')
+const backupsDir = path.join(dataDir, 'backups')
 const upload = multer({ dest: uploadsDir })
 
 function ensureSeed() {
@@ -18,6 +20,73 @@ function ensureSeed() {
   }
 }
 ensureSeed()
+
+function buildBackupFilename() {
+  const now = new Date()
+  const pad = value => String(value).padStart(2, '0')
+  const stamp = [
+    now.getFullYear(),
+    pad(now.getMonth() + 1),
+    pad(now.getDate())
+  ].join('-') + '_' + [
+    pad(now.getHours()),
+    pad(now.getMinutes()),
+    pad(now.getSeconds())
+  ].join('-')
+
+  return `backup-${stamp}.sql`
+}
+
+async function generateDatabaseDump(pool) {
+  const [tableRows] = await pool.query('SHOW TABLES')
+  const tables = (tableRows || []).map(row => Object.values(row)[0]).filter(Boolean)
+  const lines = [
+    '-- DTMPos database backup',
+    `-- Generated at ${new Date().toISOString()}`,
+    '',
+    'SET FOREIGN_KEY_CHECKS = 0;',
+    ''
+  ]
+
+  for (const tableName of tables) {
+    const safeTableName = String(tableName).replace(/`/g, '``')
+    const [createRows] = await pool.query(`SHOW CREATE TABLE \`${safeTableName}\``)
+    const createRow = createRows?.[0]
+    const createSql = createRow?.['Create Table']
+
+    if (!createSql) continue
+
+    lines.push(`-- Table structure for \`${safeTableName}\``)
+    lines.push(`DROP TABLE IF EXISTS \`${safeTableName}\`;`)
+    lines.push(`${createSql};`)
+    lines.push('')
+
+    const [dataRows] = await pool.query(`SELECT * FROM \`${safeTableName}\``)
+    if (!Array.isArray(dataRows) || dataRows.length === 0) {
+      continue
+    }
+
+    const columns = Object.keys(dataRows[0]).map(column => `\`${String(column).replace(/`/g, '``')}\``).join(', ')
+    lines.push(`-- Data for \`${safeTableName}\``)
+
+    for (let index = 0; index < dataRows.length; index += 100) {
+      const batch = dataRows.slice(index, index + 100)
+      const valuesSql = batch.map(row => {
+        const values = Object.values(row).map(value => mysql.escape(value)).join(', ')
+        return `(${values})`
+      }).join(',\n')
+
+      lines.push(`INSERT INTO \`${safeTableName}\` (${columns}) VALUES`)
+      lines.push(`${valuesSql};`)
+    }
+
+    lines.push('')
+  }
+
+  lines.push('SET FOREIGN_KEY_CHECKS = 1;')
+  lines.push('')
+  return lines.join('\n')
+}
 
 router.get('/', async (req, res) => {
   try {
@@ -33,6 +102,24 @@ router.get('/', async (req, res) => {
   } catch (err) {
     console.error('Config GET error:', err)
     return res.status(500).json({ error: 'Server error' })
+  }
+})
+
+router.get('/backup', authMiddleware, roleMiddleware(['ADMIN']), async (req, res) => {
+  try {
+    const pool = await getPool()
+    const filename = buildBackupFilename()
+    const dumpContent = await generateDatabaseDump(pool)
+
+    fs.mkdirSync(backupsDir, { recursive: true })
+    fs.writeFileSync(path.join(backupsDir, filename), dumpContent, 'utf-8')
+
+    res.setHeader('Content-Type', 'application/sql; charset=utf-8')
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
+    return res.send(dumpContent)
+  } catch (err) {
+    console.error('Config BACKUP error:', err)
+    return res.status(500).json({ error: 'No se pudo generar el backup de la base de datos' })
   }
 })
 
