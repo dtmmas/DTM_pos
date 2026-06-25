@@ -6,6 +6,35 @@ const router = express.Router()
 
 router.use(authMiddleware)
 
+function normalizeRoleCode(value) {
+  const normalized = String(value || '')
+    .trim()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .replace(/_+/g, '_')
+
+  return normalized || 'ROL'
+}
+
+async function buildUniqueRoleCode(pool, baseCode, excludeRoleId = null) {
+  let candidate = normalizeRoleCode(baseCode)
+  let suffix = 2
+
+  while (true) {
+    const params = excludeRoleId ? [candidate, excludeRoleId] : [candidate]
+    const query = excludeRoleId
+      ? 'SELECT id FROM roles WHERE code = ? AND id <> ? LIMIT 1'
+      : 'SELECT id FROM roles WHERE code = ? LIMIT 1'
+    const [rows] = await pool.query(query, params)
+    if (!Array.isArray(rows) || rows.length === 0) return candidate
+    candidate = `${normalizeRoleCode(baseCode)}_${suffix}`
+    suffix += 1
+  }
+}
+
 // List all roles
 router.get('/', permissionMiddleware('roles:read'), async (req, res) => {
   try {
@@ -41,14 +70,21 @@ router.get('/permissions', permissionMiddleware('roles:read'), async (req, res) 
 // Create role
 router.post('/', permissionMiddleware('roles:write'), async (req, res) => {
   const { name, description, permissions, code } = req.body
-  if (!name) return res.status(400).json({ error: 'Name required' })
+  const trimmedName = String(name || '').trim()
+  const trimmedDescription = String(description || '').trim()
+  if (!trimmedName) return res.status(400).json({ error: 'El nombre del rol es obligatorio' })
 
   try {
     const pool = await getPool()
-    // Generate code if not provided
-    const roleCode = code || name.toUpperCase().replace(/[^A-Z0-9]/g, '_')
+    const [existingByName] = await pool.query('SELECT id FROM roles WHERE name = ? LIMIT 1', [trimmedName])
+    if (Array.isArray(existingByName) && existingByName.length > 0) {
+      return res.status(409).json({ error: 'Ya existe un rol con ese nombre' })
+    }
 
-    const [resRole] = await pool.query('INSERT INTO roles (code, name, description) VALUES (?, ?, ?)', [roleCode, name, description])
+    const requestedCode = code || trimmedName
+    const roleCode = await buildUniqueRoleCode(pool, requestedCode)
+
+    const [resRole] = await pool.query('INSERT INTO roles (code, name, description) VALUES (?, ?, ?)', [roleCode, trimmedName, trimmedDescription || null])
     const roleId = resRole.insertId
     
     if (permissions && Array.isArray(permissions) && permissions.length > 0) {
@@ -59,8 +95,11 @@ router.post('/', permissionMiddleware('roles:write'), async (req, res) => {
       }
     }
     
-    res.json({ id: roleId, code: roleCode, name, description, permissions })
+    res.json({ id: roleId, code: roleCode, name: trimmedName, description: trimmedDescription, permissions })
   } catch (err) {
+    if (err?.code === 'ER_DUP_ENTRY') {
+      return res.status(409).json({ error: 'Ya existe un rol con ese nombre o codigo' })
+    }
     res.status(500).json({ error: err.message })
   }
 })
@@ -69,14 +108,25 @@ router.post('/', permissionMiddleware('roles:write'), async (req, res) => {
 router.put('/:id', permissionMiddleware('roles:write'), async (req, res) => {
   const { id } = req.params
   const { name, description, permissions, code } = req.body
+  const trimmedName = String(name || '').trim()
+  const trimmedDescription = String(description || '').trim()
   
   try {
     const pool = await getPool()
+    if (!trimmedName) {
+      return res.status(400).json({ error: 'El nombre del rol es obligatorio' })
+    }
+
+    const [existingByName] = await pool.query('SELECT id FROM roles WHERE name = ? AND id <> ? LIMIT 1', [trimmedName, id])
+    if (Array.isArray(existingByName) && existingByName.length > 0) {
+      return res.status(409).json({ error: 'Ya existe otro rol con ese nombre' })
+    }
     
     if (code) {
-      await pool.query('UPDATE roles SET code = ?, name = ?, description = ? WHERE id = ?', [code, name, description, id])
+      const safeCode = await buildUniqueRoleCode(pool, code, id)
+      await pool.query('UPDATE roles SET code = ?, name = ?, description = ? WHERE id = ?', [safeCode, trimmedName, trimmedDescription || null, id])
     } else {
-      await pool.query('UPDATE roles SET name = ?, description = ? WHERE id = ?', [name, description, id])
+      await pool.query('UPDATE roles SET name = ?, description = ? WHERE id = ?', [trimmedName, trimmedDescription || null, id])
     }
     
     if (permissions && Array.isArray(permissions)) {
@@ -89,8 +139,11 @@ router.put('/:id', permissionMiddleware('roles:write'), async (req, res) => {
       }
     }
     
-    res.json({ id, code, name, description, permissions })
+    res.json({ id, code, name: trimmedName, description: trimmedDescription, permissions })
   } catch (err) {
+    if (err?.code === 'ER_DUP_ENTRY') {
+      return res.status(409).json({ error: 'Ya existe un rol con ese nombre o codigo' })
+    }
     res.status(500).json({ error: err.message })
   }
 })

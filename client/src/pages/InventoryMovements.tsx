@@ -106,6 +106,7 @@ export default function InventoryMovements() {
   const [productWarehouseStockMap, setProductWarehouseStockMap] = useState<Record<number, WarehouseStock[]>>({})
   const [availableAdjustImeis, setAvailableAdjustImeis] = useState<string[]>([])
   const [availableAdjustSerials, setAvailableAdjustSerials] = useState<string[]>([])
+  const [savingAdjust, setSavingAdjust] = useState(false)
 
   // Helper for array inputs
   const updateBatch = (idx: number, field: keyof Batch, val: any) => {
@@ -393,12 +394,39 @@ export default function InventoryMovements() {
   }
 
   const saveAdjust = async () => {
+    if (savingAdjust) {
+      alert('El ajuste ya se está procesando, espera un momento')
+      return
+    }
     if (!adjustForm.productId || !adjustForm.warehouseId || !adjustForm.quantity) {
       alert('Complete los campos requeridos')
       return
     }
     const qty = Number(adjustForm.quantity)
     const pt = (selectedProduct?.productType || 'GENERAL').toUpperCase()
+    const debugTraceId = `adj-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+
+    // #region debug-point A:adjust-click
+    fetch('http://127.0.0.1:7777/event', {
+      method: 'POST',
+      body: JSON.stringify({
+        sessionId: 'stock-double-adjust',
+        runId: 'pre-fix',
+        hypothesisId: 'A',
+        traceId: debugTraceId,
+        location: 'InventoryMovements.tsx:saveAdjust:start',
+        msg: '[DEBUG] saveAdjust invocado desde frontend',
+        data: {
+          productId: adjustForm.productId,
+          warehouseId: adjustForm.warehouseId,
+          type: adjustForm.type,
+          quantity: adjustForm.quantity,
+          productType: pt
+        },
+        ts: Date.now()
+      })
+    }).catch(() => {})
+    // #endregion
 
     if (qty > 0) {
         if (pt === 'MEDICINAL') {
@@ -461,13 +489,56 @@ export default function InventoryMovements() {
     }
     
     try {
+      setSavingAdjust(true)
       const adjustedImeis = qty < 0 ? adjustForm.imeis.map(i => i.trim().toUpperCase()).filter(Boolean) : []
       const adjustedSerials = qty < 0 ? adjustForm.serials.map(s => s.trim().toUpperCase()).filter(Boolean) : []
 
+      // #region debug-point A:adjust-request
+      fetch('http://127.0.0.1:7777/event', {
+        method: 'POST',
+        body: JSON.stringify({
+          sessionId: 'stock-double-adjust',
+          runId: 'pre-fix',
+          hypothesisId: 'A',
+          traceId: debugTraceId,
+          location: 'InventoryMovements.tsx:saveAdjust:request',
+          msg: '[DEBUG] Enviando POST /inventory/adjust',
+          data: {
+            productId: adjustForm.productId,
+            warehouseId: adjustForm.warehouseId,
+            type: adjustForm.type,
+            quantity: adjustForm.quantity,
+            productType: selectedProduct?.productType || 'GENERAL'
+          },
+          ts: Date.now()
+        })
+      }).catch(() => {})
+      // #endregion
       await api.post('/inventory/adjust', {
         ...adjustForm,
+        debugTraceId,
         productType: selectedProduct?.productType || 'GENERAL'
       })
+
+      // #region debug-point A:adjust-success
+      fetch('http://127.0.0.1:7777/event', {
+        method: 'POST',
+        body: JSON.stringify({
+          sessionId: 'stock-double-adjust',
+          runId: 'pre-fix',
+          hypothesisId: 'A',
+          traceId: debugTraceId,
+          location: 'InventoryMovements.tsx:saveAdjust:success',
+          msg: '[DEBUG] POST /inventory/adjust respondio OK',
+          data: {
+            productId: adjustForm.productId,
+            warehouseId: adjustForm.warehouseId,
+            quantity: adjustForm.quantity
+          },
+          ts: Date.now()
+        })
+      }).catch(() => {})
+      // #endregion
 
       if (adjustedImeis.length > 0) {
         setAvailableAdjustImeis(prev => prev.filter(imei => !adjustedImeis.includes(String(imei).trim().toUpperCase())))
@@ -485,7 +556,29 @@ export default function InventoryMovements() {
         loadHistory()
       }
     } catch (err: any) {
+      // #region debug-point D:adjust-error
+      fetch('http://127.0.0.1:7777/event', {
+        method: 'POST',
+        body: JSON.stringify({
+          sessionId: 'stock-double-adjust',
+          runId: 'pre-fix',
+          hypothesisId: 'D',
+          traceId: debugTraceId,
+          location: 'InventoryMovements.tsx:saveAdjust:error',
+          msg: '[DEBUG] POST /inventory/adjust fallo en frontend',
+          data: {
+            productId: adjustForm.productId,
+            warehouseId: adjustForm.warehouseId,
+            quantity: adjustForm.quantity,
+            error: err?.response?.data?.error || err?.message || 'unknown'
+          },
+          ts: Date.now()
+        })
+      }).catch(() => {})
+      // #endregion
       alert(err?.response?.data?.error || 'Error al registrar ajuste')
+    } finally {
+      setSavingAdjust(false)
     }
   }
 
@@ -1372,8 +1465,10 @@ export default function InventoryMovements() {
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 20 }}>
-              <button onClick={() => setShowAdjust(false)}>Cancelar</button>
-              <button className="primary-btn" onClick={saveAdjust}>Guardar Ajuste</button>
+              <button onClick={() => setShowAdjust(false)} disabled={savingAdjust}>Cancelar</button>
+              <button className="primary-btn" onClick={saveAdjust} disabled={savingAdjust}>
+                {savingAdjust ? 'Guardando ajuste...' : 'Guardar Ajuste'}
+              </button>
             </div>
           </div>
         </div>

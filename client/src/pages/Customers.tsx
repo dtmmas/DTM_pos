@@ -16,6 +16,7 @@ export default function Customers() {
   const [loading, setLoading] = useState(false)
   const [editing, setEditing] = useState<Customer | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const [savingCustomer, setSavingCustomer] = useState(false)
   const { user, hasPermission } = useAuthStore()
 
   // Form state
@@ -46,7 +47,9 @@ export default function Customers() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (savingCustomer) return
     try {
+      setSavingCustomer(true)
       if (editing) {
         await api.put(`/customers/${editing.id}`, formData)
       } else {
@@ -59,6 +62,8 @@ export default function Customers() {
     } catch (err) {
       console.error(err)
       alert('Error al guardar cliente')
+    } finally {
+      setSavingCustomer(false)
     }
   }
 
@@ -159,7 +164,7 @@ export default function Customers() {
           <div className="modal">
             <div className="modal-header">
               <h2>{editing ? 'Editar Cliente' : 'Nuevo Cliente'}</h2>
-              <button onClick={() => setIsModalOpen(false)} className="close-btn">&times;</button>
+              <button onClick={() => setIsModalOpen(false)} className="close-btn" disabled={savingCustomer}>&times;</button>
             </div>
             <form onSubmit={handleSubmit}>
               <div className="modal-body">
@@ -202,8 +207,10 @@ export default function Customers() {
                 </div>
               </div>
               <div className="modal-footer">
-                <button type="button" onClick={() => setIsModalOpen(false)} className="btn-secondary">Cancelar</button>
-                <button type="submit" className="btn-primary">Guardar</button>
+                <button type="button" onClick={() => setIsModalOpen(false)} className="btn-secondary" disabled={savingCustomer}>Cancelar</button>
+                <button type="submit" className="btn-primary" disabled={savingCustomer}>
+                  {savingCustomer ? 'Guardando...' : 'Guardar'}
+                </button>
               </div>
             </form>
           </div>

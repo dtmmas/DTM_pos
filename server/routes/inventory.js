@@ -274,6 +274,30 @@ import { registerMovement } from '../services/inventory.js'
 router.post('/adjust', authMiddleware, async (req, res) => {
   try {
     const { productId, warehouseId, type, quantity, notes, batches, imeis, serials } = req.body
+    const debugTraceId = String(req.body?.debugTraceId || `srv-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`)
+
+    // #region debug-point B:adjust-entry
+    fetch('http://127.0.0.1:7777/event', {
+      method: 'POST',
+      body: JSON.stringify({
+        sessionId: 'stock-double-adjust',
+        runId: 'pre-fix',
+        hypothesisId: 'B',
+        traceId: debugTraceId,
+        location: 'server/routes/inventory.js:/adjust:entry',
+        msg: '[DEBUG] Backend recibio POST /inventory/adjust',
+        data: {
+          productId,
+          warehouseId,
+          type,
+          quantity,
+          userId: req.user?.id || null,
+          productType: req.body?.productType || null
+        },
+        ts: Date.now()
+      })
+    }).catch(() => {})
+    // #endregion
     
     if (!productId || !warehouseId || !type || !quantity) {
       return res.status(400).json({ error: 'Faltan datos requeridos' })
@@ -294,6 +318,12 @@ router.post('/adjust', authMiddleware, async (req, res) => {
     try {
       await conn.beginTransaction()
 
+      const [[productRow]] = await conn.query(
+        'SELECT product_type FROM products WHERE id = ? LIMIT 1',
+        [productId]
+      )
+      const normalizedProductType = String(productRow?.product_type || req.body?.productType || '').toUpperCase()
+
       // Determinar tipo real para el servicio (ADJUSTMENT_IN o ADJUSTMENT_OUT)
       // Si el usuario seleccionó INITIAL, siempre es positivo (entrada)
       // Si es ADJUSTMENT, depende del signo
@@ -306,16 +336,14 @@ router.post('/adjust', authMiddleware, async (req, res) => {
         if (qty < 0) throw new Error('El stock inicial no puede ser negativo')
       }
 
-      if (qty < 0) {
-        if (String(req.body?.productType || '').toUpperCase() === 'IMEI') {
-          if (!Array.isArray(imeis) || imeis.length !== absQty) {
-            throw new Error(`Debes seleccionar exactamente ${absQty} IMEI(s) para el ajuste`)
-          }
+      if (normalizedProductType === 'IMEI') {
+        if (!Array.isArray(imeis) || imeis.length !== absQty) {
+          throw new Error(`Debes ingresar exactamente ${absQty} IMEI(s) para el ajuste`)
         }
-        if (String(req.body?.productType || '').toUpperCase() === 'SERIAL') {
-          if (!Array.isArray(serials) || serials.length !== absQty) {
-            throw new Error(`Debes seleccionar exactamente ${absQty} serie(s) para el ajuste`)
-          }
+      }
+      if (normalizedProductType === 'SERIAL') {
+        if (!Array.isArray(serials) || serials.length !== absQty) {
+          throw new Error(`Debes ingresar exactamente ${absQty} serie(s) para el ajuste`)
         }
       }
 
@@ -327,6 +355,30 @@ router.post('/adjust', authMiddleware, async (req, res) => {
         serials
       })
 
+      // #region debug-point C:before-register-movement
+      fetch('http://127.0.0.1:7777/event', {
+        method: 'POST',
+        body: JSON.stringify({
+          sessionId: 'stock-double-adjust',
+          runId: 'pre-fix',
+          hypothesisId: 'C',
+          traceId: debugTraceId,
+          location: 'server/routes/inventory.js:/adjust:before-registerMovement',
+          msg: '[DEBUG] Antes de registerMovement en ajuste',
+          data: {
+            productId,
+            warehouseId,
+            inputType: type,
+            realType,
+            absQty,
+            qty,
+            productType: normalizedProductType || null
+          },
+          ts: Date.now()
+        })
+      }).catch(() => {})
+      // #endregion
+
       await registerMovement({
         productId,
         warehouseId,
@@ -335,6 +387,27 @@ router.post('/adjust', authMiddleware, async (req, res) => {
         userId: req.user?.id,
         notes: movementNotes
       }, conn)
+
+      // #region debug-point C:after-register-movement
+      fetch('http://127.0.0.1:7777/event', {
+        method: 'POST',
+        body: JSON.stringify({
+          sessionId: 'stock-double-adjust',
+          runId: 'pre-fix',
+          hypothesisId: 'C',
+          traceId: debugTraceId,
+          location: 'server/routes/inventory.js:/adjust:after-registerMovement',
+          msg: '[DEBUG] Despues de registerMovement en ajuste',
+          data: {
+            productId,
+            warehouseId,
+            realType,
+            absQty
+          },
+          ts: Date.now()
+        })
+      }).catch(() => {})
+      // #endregion
 
       // Si es una entrada (qty > 0), registrar detalles
       if (qty > 0) {
@@ -352,10 +425,8 @@ router.post('/adjust', authMiddleware, async (req, res) => {
 
         // 2. IMEIs
         if (imeis && Array.isArray(imeis) && imeis.length > 0) {
-          // Validar cantidad
           if (imeis.length !== absQty) {
-             // Opcional: permitir parciales? Mejor estricto.
-             // throw new Error(`La cantidad de IMEIs (${imeis.length}) no coincide con la cantidad del ajuste (${absQty})`)
+             throw new Error(`La cantidad de IMEIs (${imeis.length}) no coincide con la cantidad del ajuste (${absQty})`)
           }
           for (const imei of imeis) {
             if (!imei) continue
@@ -397,7 +468,7 @@ router.post('/adjust', authMiddleware, async (req, res) => {
         // 3. Series
         if (serials && Array.isArray(serials) && serials.length > 0) {
           if (serials.length !== absQty) {
-             // throw new Error(`La cantidad de series (${serials.length}) no coincide con la cantidad del ajuste (${absQty})`)
+             throw new Error(`La cantidad de series (${serials.length}) no coincide con la cantidad del ajuste (${absQty})`)
           }
           for (const serial of serials) {
             if (!serial) continue
@@ -465,10 +536,73 @@ router.post('/adjust', authMiddleware, async (req, res) => {
         }
       }
 
+      // #region debug-point C:before-commit
+      fetch('http://127.0.0.1:7777/event', {
+        method: 'POST',
+        body: JSON.stringify({
+          sessionId: 'stock-double-adjust',
+          runId: 'pre-fix',
+          hypothesisId: 'C',
+          traceId: debugTraceId,
+          location: 'server/routes/inventory.js:/adjust:before-commit',
+          msg: '[DEBUG] Ajuste listo para commit',
+          data: {
+            productId,
+            warehouseId,
+            realType,
+            absQty,
+            qty
+          },
+          ts: Date.now()
+        })
+      }).catch(() => {})
+      // #endregion
       await conn.commit()
+
+      // #region debug-point B:adjust-success
+      fetch('http://127.0.0.1:7777/event', {
+        method: 'POST',
+        body: JSON.stringify({
+          sessionId: 'stock-double-adjust',
+          runId: 'pre-fix',
+          hypothesisId: 'B',
+          traceId: debugTraceId,
+          location: 'server/routes/inventory.js:/adjust:success',
+          msg: '[DEBUG] Backend completo ajuste OK',
+          data: {
+            productId,
+            warehouseId,
+            realType,
+            absQty
+          },
+          ts: Date.now()
+        })
+      }).catch(() => {})
+      // #endregion
       return res.json({ success: true })
     } catch (err) {
       await conn.rollback()
+      // #region debug-point E:adjust-tx-error
+      fetch('http://127.0.0.1:7777/event', {
+        method: 'POST',
+        body: JSON.stringify({
+          sessionId: 'stock-double-adjust',
+          runId: 'pre-fix',
+          hypothesisId: 'E',
+          traceId: debugTraceId,
+          location: 'server/routes/inventory.js:/adjust:tx-error',
+          msg: '[DEBUG] Error en transaccion de ajuste',
+          data: {
+            productId,
+            warehouseId,
+            type,
+            quantity,
+            error: err?.message || 'unknown'
+          },
+          ts: Date.now()
+        })
+      }).catch(() => {})
+      // #endregion
       console.error('Inventory Adjust Transaction Error:', err)
       return res.status(500).json({ error: err.message || 'Error al procesar ajuste' })
     } finally {

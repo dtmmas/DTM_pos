@@ -19,6 +19,7 @@ export default function Roles() {
   const [permissions, setPermissions] = useState<Permission[]>([])
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingRole, setEditingRole] = useState<Role | null>(null)
+  const [savingRole, setSavingRole] = useState(false)
   
   const [formData, setFormData] = useState({
     name: '',
@@ -51,7 +52,9 @@ export default function Roles() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (savingRole) return
     try {
+      setSavingRole(true)
       if (editingRole) {
         await api.put(`/roles/${editingRole.id}`, formData)
       } else {
@@ -60,7 +63,10 @@ export default function Roles() {
       setIsModalOpen(false)
       fetchRoles()
     } catch (err) {
-      alert('Error saving role')
+      console.error(err)
+      alert((err as any)?.response?.data?.error || 'No se pudo guardar el rol')
+    } finally {
+      setSavingRole(false)
     }
   }
 
@@ -158,7 +164,7 @@ export default function Roles() {
           <div className="modal" style={{ maxWidth: '900px', width: '900px' }}>
             <div className="modal-header">
               <h2 style={{ margin: 0 }}>{editingRole ? 'Editar Rol' : 'Nuevo Rol'}</h2>
-              <button onClick={() => setIsModalOpen(false)} className="close-btn">&times;</button>
+              <button onClick={() => setIsModalOpen(false)} className="close-btn" disabled={savingRole}>&times;</button>
             </div>
             <form onSubmit={handleSubmit}>
               <div style={{ padding: '10px 0' }}>
@@ -214,11 +220,11 @@ export default function Roles() {
               </div>
 
               <div className="modal-footer">
-                <button type="button" onClick={() => setIsModalOpen(false)} style={{ background: 'transparent', border: '1px solid var(--border)', padding: '8px 16px', borderRadius: 8, color: 'var(--text)' }}>
+                <button type="button" onClick={() => setIsModalOpen(false)} disabled={savingRole} style={{ background: 'transparent', border: '1px solid var(--border)', padding: '8px 16px', borderRadius: 8, color: 'var(--text)' }}>
                   Cancelar
                 </button>
-                <button type="submit" className="primary-btn">
-                  Guardar
+                <button type="submit" className="primary-btn" disabled={savingRole}>
+                  {savingRole ? 'Guardando...' : 'Guardar'}
                 </button>
               </div>
             </form>

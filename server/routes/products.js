@@ -446,6 +446,19 @@ router.post('/:id/warehouse-stock/transfer', authMiddleware, roleMiddleware(['AD
     const conn = await pool.getConnection()
     try {
       await conn.beginTransaction()
+
+      const [[productRow]] = await conn.query(
+        'SELECT name, product_type FROM products WHERE id = ? LIMIT 1',
+        [productId]
+      )
+      if (!productRow) {
+        throw new Error('Producto no encontrado')
+      }
+
+      const normalizedProductType = String(productRow.product_type || '').toUpperCase()
+      if (['IMEI', 'SERIAL', 'MEDICINAL'].includes(normalizedProductType)) {
+        throw new Error(`El producto ${productRow.name} usa detalle por ${normalizedProductType === 'MEDICINAL' ? 'lotes' : normalizedProductType.toLowerCase()}. Usa el modulo de transferencias con seleccion detallada para evitar desfases.`)
+      }
       
       // Registrar salida del origen
       await registerMovement({

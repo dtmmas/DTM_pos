@@ -156,6 +156,7 @@ export default function Sales() {
   const [isCancelModalOpen, setIsCancelModalOpen] = useState(false)
   const [cancelReason, setCancelReason] = useState('')
   const [saleToCancel, setSaleToCancel] = useState<Sale | null>(null)
+  const [cancellingSale, setCancellingSale] = useState(false)
   const iframeRef = useRef<HTMLIFrameElement>(null)
 
   const config = useConfigStore(s => s.config)
@@ -298,13 +299,17 @@ export default function Sales() {
 
   const confirmCancel = async () => {
     if (!saleToCancel || !cancelReason.trim()) return
+    if (cancellingSale) return
     try {
+      setCancellingSale(true)
       await cancelSale(saleToCancel.id, cancelReason)
       setIsCancelModalOpen(false)
       setSaleToCancel(null)
       loadSales()
     } catch (err: any) {
       alert(err.response?.data?.error || 'Error al cancelar venta')
+    } finally {
+      setCancellingSale(false)
     }
   }
 
@@ -796,15 +801,16 @@ export default function Sales() {
               <button 
                 onClick={() => setIsCancelModalOpen(false)}
                 className="secondary-btn"
+                disabled={cancellingSale}
               >
                 Cerrar
               </button>
               <button 
                 onClick={confirmCancel}
                 className="danger-btn"
-                disabled={!cancelReason.trim()}
+                disabled={cancellingSale || !cancelReason.trim()}
               >
-                Confirmar Cancelación
+                {cancellingSale ? 'Cancelando venta...' : 'Confirmar Cancelación'}
               </button>
             </div>
           </div>

@@ -28,6 +28,7 @@ export default function Users() {
   const [warehouses, setWarehouses] = useState<Warehouse[]>([])
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingUser, setEditingUser] = useState<User | null>(null)
+  const [savingUser, setSavingUser] = useState(false)
   
   const [formData, setFormData] = useState({
     name: '',
@@ -73,7 +74,9 @@ export default function Users() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (savingUser) return
     try {
+      setSavingUser(true)
       const payload: any = { ...formData, active: formData.active }
       if (!payload.password) delete payload.password
 
@@ -86,6 +89,8 @@ export default function Users() {
       fetchUsers()
     } catch (err: any) {
       alert(err.response?.data?.error || 'Error saving user')
+    } finally {
+      setSavingUser(false)
     }
   }
 
@@ -191,7 +196,7 @@ export default function Users() {
           <div className="modal">
             <div className="modal-header">
               <h2 style={{ margin: 0 }}>{editingUser ? 'Editar Usuario' : 'Nuevo Usuario'}</h2>
-              <button onClick={() => setIsModalOpen(false)} className="close-btn">&times;</button>
+              <button onClick={() => setIsModalOpen(false)} className="close-btn" disabled={savingUser}>&times;</button>
             </div>
             <form onSubmit={handleSubmit}>
               <div style={{ padding: '10px 0' }}>
@@ -262,11 +267,11 @@ export default function Users() {
               </div>
 
               <div className="modal-footer">
-                <button type="button" onClick={() => setIsModalOpen(false)} style={{ background: 'transparent', border: '1px solid var(--border)', padding: '8px 16px', borderRadius: 8, color: 'var(--text)' }}>
+                <button type="button" onClick={() => setIsModalOpen(false)} disabled={savingUser} style={{ background: 'transparent', border: '1px solid var(--border)', padding: '8px 16px', borderRadius: 8, color: 'var(--text)' }}>
                   Cancelar
                 </button>
-                <button type="submit" className="primary-btn">
-                  Guardar
+                <button type="submit" className="primary-btn" disabled={savingUser}>
+                  {savingUser ? 'Guardando...' : 'Guardar'}
                 </button>
               </div>
             </form>

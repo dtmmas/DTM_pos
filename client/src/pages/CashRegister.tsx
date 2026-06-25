@@ -15,6 +15,9 @@ export default function CashRegister() {
   const { user } = useAuthStore()
   const isAdmin = user?.role === 'ADMIN'
   const [loading, setLoading] = useState(true)
+  const [openingCash, setOpeningCash] = useState(false)
+  const [savingMovement, setSavingMovement] = useState(false)
+  const [closingCash, setClosingCash] = useState(false)
   const [isOpen, setIsOpen] = useState(false)
   const [summary, setSummary] = useState<any>(null)
   const [movements, setMovements] = useState<any[]>([])
@@ -118,7 +121,9 @@ export default function CashRegister() {
 
   const handleOpenRegister = async (e: FormEvent) => {
     e.preventDefault()
+    if (openingCash) return
     try {
+      setOpeningCash(true)
       await openCashRegister({ 
         openingAmount: Number(openingAmount), 
         notes 
@@ -128,12 +133,16 @@ export default function CashRegister() {
       setNotes('')
     } catch (err: any) {
       alert(err.response?.data?.error || 'Error al abrir caja')
+    } finally {
+      setOpeningCash(false)
     }
   }
 
   const handleAddMovement = async (e: FormEvent) => {
     e.preventDefault()
+    if (savingMovement) return
     try {
+      setSavingMovement(true)
       await addCashMovement({
         type: movementType,
         amount: Number(movementAmount),
@@ -145,12 +154,16 @@ export default function CashRegister() {
       await fetchDetails()
     } catch (err: any) {
       alert(err.response?.data?.error || 'Error al registrar movimiento')
+    } finally {
+      setSavingMovement(false)
     }
   }
 
   const handleCloseRegister = async (e: FormEvent) => {
     e.preventDefault()
+    if (closingCash) return
     try {
+      setClosingCash(true)
       const res = await closeCashRegister({
         closingAmount: Number(closingAmount),
         notes
@@ -162,6 +175,8 @@ export default function CashRegister() {
       setNotes('')
     } catch (err: any) {
       alert(err.response?.data?.error || 'Error al cerrar caja')
+    } finally {
+      setClosingCash(false)
     }
   }
 
@@ -215,8 +230,8 @@ export default function CashRegister() {
                     rows={3}
                   />
                 </div>
-                <button type="submit" className="btn-primary" style={{ width: '100%', padding: 12 }}>
-                  Abrir Caja
+                <button type="submit" className="btn-primary" style={{ width: '100%', padding: 12 }} disabled={openingCash}>
+                  {openingCash ? 'Abriendo caja...' : 'Abrir Caja'}
                 </button>
               </form>
             </>
@@ -427,8 +442,10 @@ export default function CashRegister() {
                 />
              </div>
              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-                <button type="button" onClick={() => setShowMovementModal(false)} className="btn-secondary">Cancelar</button>
-                <button type="submit" className="btn-primary">Registrar</button>
+                <button type="button" onClick={() => setShowMovementModal(false)} className="btn-secondary" disabled={savingMovement}>Cancelar</button>
+                <button type="submit" className="btn-primary" disabled={savingMovement}>
+                  {savingMovement ? 'Registrando...' : 'Registrar'}
+                </button>
              </div>
           </form>
         </Modal>
@@ -470,8 +487,10 @@ export default function CashRegister() {
                 />
              </div>
              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-                <button type="button" onClick={() => setShowCloseModal(false)} className="btn-secondary">Cancelar</button>
-                <button type="submit" className="btn-danger">Confirmar Cierre</button>
+                <button type="button" onClick={() => setShowCloseModal(false)} className="btn-secondary" disabled={closingCash}>Cancelar</button>
+                <button type="submit" className="btn-danger" disabled={closingCash}>
+                  {closingCash ? 'Cerrando caja...' : 'Confirmar Cierre'}
+                </button>
              </div>
            </form>
         </Modal>

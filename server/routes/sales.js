@@ -446,12 +446,30 @@ router.post('/', authMiddleware, async (req, res) => {
         )
 
         if (item.serial) {
-             await conn.query('UPDATE product_serials SET status = "SOLD" WHERE product_id = ? AND serial_no = ? AND warehouse_id = ?', [item.productId, item.serial, saleWarehouseId])
+             const [serialResult] = await conn.query(
+               'UPDATE product_serials SET status = "SOLD" WHERE product_id = ? AND serial_no = ? AND warehouse_id = ? AND status = "AVAILABLE"',
+               [item.productId, item.serial, saleWarehouseId]
+             )
+             if (!serialResult.affectedRows) {
+               throw new Error(`La serie ${item.serial} no está disponible para la venta en la tienda seleccionada`)
+             }
         } else if (item.imei) {
-             await conn.query('UPDATE product_imeis SET status = "SOLD" WHERE product_id = ? AND imei = ? AND warehouse_id = ?', [item.productId, item.imei, saleWarehouseId])
+             const [imeiResult] = await conn.query(
+               'UPDATE product_imeis SET status = "SOLD" WHERE product_id = ? AND imei = ? AND warehouse_id = ? AND status = "AVAILABLE"',
+               [item.productId, item.imei, saleWarehouseId]
+             )
+             if (!imeiResult.affectedRows) {
+               throw new Error(`El IMEI ${item.imei} no está disponible para la venta en la tienda seleccionada`)
+             }
         } else if (item.batchNo) {
             // Producto medicinal con lote
-             await conn.query('UPDATE product_batches SET quantity = quantity - ? WHERE product_id = ? AND batch_no = ? AND warehouse_id = ?', [item.quantity, item.productId, item.batchNo, saleWarehouseId])
+             const [batchResult] = await conn.query(
+               'UPDATE product_batches SET quantity = quantity - ? WHERE product_id = ? AND batch_no = ? AND warehouse_id = ? AND quantity >= ?',
+               [item.quantity, item.productId, item.batchNo, saleWarehouseId, item.quantity]
+             )
+             if (!batchResult.affectedRows) {
+               throw new Error(`El lote ${item.batchNo} no está disponible para la venta en la tienda seleccionada`)
+             }
         }
 
         // Registrar movimiento de inventario (SALE)
@@ -747,6 +765,24 @@ router.post('/:id/cancel', authMiddleware, async (req, res) => {
       // 3. Restaurar stock
       const [items] = await conn.query('SELECT * FROM sale_items WHERE sale_id = ?', [saleId])
       for (const item of items) {
+        if (item.serial) {
+          const [serialRestore] = await conn.query(
+            'UPDATE product_serials SET status = "AVAILABLE", warehouse_id = ? WHERE product_id = ? AND serial_no = ? AND status = "SOLD"',
+            [Number(sale.warehouse_id || getUserWarehouseId(req.user) || 0), item.product_id, item.serial]
+          )
+          if (!serialRestore.affectedRows) {
+            throw new Error(`No se pudo reactivar la serie ${item.serial} al cancelar la venta`)
+          }
+        } else if (item.imei) {
+          const [imeiRestore] = await conn.query(
+            'UPDATE product_imeis SET status = "AVAILABLE", warehouse_id = ? WHERE product_id = ? AND imei = ? AND status = "SOLD"',
+            [Number(sale.warehouse_id || getUserWarehouseId(req.user) || 0), item.product_id, item.imei]
+          )
+          if (!imeiRestore.affectedRows) {
+            throw new Error(`No se pudo reactivar el IMEI ${item.imei} al cancelar la venta`)
+          }
+        }
+
         // Restaurar stock usando servicio centralizado
         await registerMovement({
             productId: item.product_id,

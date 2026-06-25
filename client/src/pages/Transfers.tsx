@@ -134,6 +134,7 @@ export default function Transfers() {
   const [trackedSelection, setTrackedSelection] = useState<TrackedProductSelection | null>(null)
   const [selectedTransferDetail, setSelectedTransferDetail] = useState<TransferDetail | null>(null)
   const [loadingTransferDetailId, setLoadingTransferDetailId] = useState<number | null>(null)
+  const [submittingTransfer, setSubmittingTransfer] = useState(false)
 
   const getDestinationMovementLabel = (summary?: string) => {
     const normalized = String(summary || '').toUpperCase()
@@ -617,6 +618,10 @@ export default function Transfers() {
   }
 
   const handleSubmit = async () => {
+    if (submittingTransfer) {
+      alert('La transferencia ya se está procesando, espera un momento')
+      return
+    }
     if (!sourceId || !destId) return alert('Seleccione almacenes')
     if (sourceId === destId) return alert('Almacenes deben ser distintos')
     if (items.length === 0) return alert('Agregue productos')
@@ -646,6 +651,7 @@ export default function Transfers() {
     }
 
     try {
+      setSubmittingTransfer(true)
       const uniqueProductIds = [...new Set(items.map(item => item.productId))]
       for (const productId of uniqueProductIds) {
         const freshDetail = await refreshItemAvailability(productId)
@@ -699,6 +705,8 @@ export default function Transfers() {
     } catch (err: any) {
       console.error(err)
       alert(err.response?.data?.error || 'Error al realizar transferencia')
+    } finally {
+      setSubmittingTransfer(false)
     }
   }
 
@@ -1152,13 +1160,13 @@ export default function Transfers() {
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-            <button className="btn-secondary" onClick={() => setView('list')}>Cancelar</button>
+            <button className="btn-secondary" onClick={() => setView('list')} disabled={submittingTransfer}>Cancelar</button>
             <button 
                 className="btn-primary" 
                 onClick={handleSubmit}
-                disabled={!sourceId || !destId || items.length === 0 || (!isAdmin && !userWarehouseId)}
+                disabled={submittingTransfer || !sourceId || !destId || items.length === 0 || (!isAdmin && !userWarehouseId)}
             >
-                Confirmar Transferencia
+                {submittingTransfer ? 'Procesando transferencia...' : 'Confirmar Transferencia'}
             </button>
           </div>
         </div>
