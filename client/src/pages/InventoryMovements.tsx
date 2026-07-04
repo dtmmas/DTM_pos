@@ -53,6 +53,10 @@ interface WarehouseStock {
   quantity: number
 }
 
+function normalizeSearchText(value?: string | null) {
+  return String(value || '').toLowerCase()
+}
+
 export default function InventoryMovements() {
   const [activeTab, setActiveTab] = useState<'products' | 'history' | 'kardex'>('products')
 
@@ -786,12 +790,12 @@ export default function InventoryMovements() {
   // Filter products
   const filteredProducts = useMemo(() => {
     if (!productQuery) return products
-    const q = productQuery.toLowerCase()
+    const q = normalizeSearchText(productQuery)
     return products.filter(p =>
-      p.name.toLowerCase().includes(q) ||
-      p.sku.toLowerCase().includes(q) ||
-      (p.productCode && p.productCode.toLowerCase().includes(q)) ||
-      (p.description && p.description.toLowerCase().includes(q))
+      normalizeSearchText(p.name).includes(q) ||
+      normalizeSearchText(p.sku).includes(q) ||
+      normalizeSearchText(p.productCode).includes(q) ||
+      normalizeSearchText(p.description).includes(q)
     )
   }, [products, productQuery])
 
@@ -1268,7 +1272,10 @@ export default function InventoryMovements() {
                 {!kardexSelectedProduct && kardexProductSearch && (
                   <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, maxHeight: 200, overflowY: 'auto', background: 'var(--modal)', border: '1px solid var(--border)', borderRadius: 6, zIndex: 10, boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
                     {products
-                      .filter(p => p.name.toLowerCase().includes(kardexProductSearch.toLowerCase()) || p.sku.toLowerCase().includes(kardexProductSearch.toLowerCase()))
+                      .filter(p =>
+                        normalizeSearchText(p.name).includes(normalizeSearchText(kardexProductSearch)) ||
+                        normalizeSearchText(p.sku).includes(normalizeSearchText(kardexProductSearch))
+                      )
                       .slice(0, 10)
                       .map(p => (
                         <div
