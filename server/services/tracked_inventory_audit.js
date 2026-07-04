@@ -13,18 +13,28 @@ function normalizeWarehouseMap(rows) {
   return map
 }
 
-function buildTrackedQuery(productType) {
+function buildTrackedConfig(productType) {
   const normalizedType = String(productType || '').toUpperCase()
   if (normalizedType === 'IMEI') {
     return {
       tableName: 'product_imeis',
-      valueColumn: 'imei'
+      valueColumn: 'imei',
+      trackedLabel: 'IMEI disponibles'
+    }
+  }
+
+  if (normalizedType === 'MEDICINAL') {
+    return {
+      tableName: 'product_batches',
+      valueColumn: 'batch_no',
+      trackedLabel: 'lotes disponibles'
     }
   }
 
   return {
     tableName: 'product_serials',
-    valueColumn: 'serial_no'
+    valueColumn: 'serial_no',
+    trackedLabel: 'series disponibles'
   }
 }
 
@@ -32,15 +42,59 @@ async function loadTrackedAuditProducts(pool) {
   const [products] = await pool.query(`
     SELECT id, name, sku, product_code, product_type
     FROM products
-    WHERE UPPER(product_type) IN ('SERIAL', 'IMEI')
+    WHERE UPPER(product_type) IN ('SERIAL', 'IMEI', 'MEDICINAL')
     ORDER BY name ASC, id ASC
   `)
   return Array.isArray(products) ? products : []
 }
 
-async function buildProductAuditEntry(pool, product) {
-  const { tableName, valueColumn } = buildTrackedQuery(product.product_type)
+async function loadTrackedRows(pool, product) {
+  const trackedConfig = buildTrackedConfig(product.product_type)
 
+  if (trackedConfig.tableName === 'product_batches') {
+    const [trackedRows] = await pool.query(`
+      SELECT pb.warehouse_id, w.name AS warehouse_name, SUM(pb.quantity) AS count,
+             GROUP_CONCAT(
+               CONCAT(
+                 pb.batch_no,
+                 ' [',
+                 COALESCE(DATE_FORMAT(pb.expiry_date, '%Y-%m-%d'), 'sin vencimiento'),
+                 '] x',
+                 pb.quantity
+               )
+               ORDER BY pb.expiry_date ASC, pb.id ASC
+               SEPARATOR ', '
+             ) AS tracked_items
+      FROM product_batches pb
+      JOIN warehouses w ON w.id = pb.warehouse_id
+      WHERE pb.product_id = ? AND pb.quantity > 0
+      GROUP BY pb.warehouse_id, w.name
+      ORDER BY pb.warehouse_id ASC
+    `, [product.id])
+
+    return {
+      trackedRows,
+      trackedConfig
+    }
+  }
+
+  const [trackedRows] = await pool.query(`
+    SELECT t.warehouse_id, w.name AS warehouse_name, COUNT(*) AS count,
+           GROUP_CONCAT(${trackedConfig.valueColumn} ORDER BY t.id SEPARATOR ', ') AS tracked_items
+    FROM ${trackedConfig.tableName} t
+    JOIN warehouses w ON w.id = t.warehouse_id
+    WHERE t.product_id = ? AND t.status = 'AVAILABLE'
+    GROUP BY t.warehouse_id, w.name
+    ORDER BY t.warehouse_id ASC
+  `, [product.id])
+
+  return {
+    trackedRows,
+    trackedConfig
+  }
+}
+
+async function buildProductAuditEntry(pool, product) {
   const [stockRows] = await pool.query(`
     SELECT pws.warehouse_id, w.name AS warehouse_name, pws.quantity AS count
     FROM product_warehouse_stock pws
@@ -49,15 +103,7 @@ async function buildProductAuditEntry(pool, product) {
     ORDER BY pws.warehouse_id ASC
   `, [product.id])
 
-  const [trackedRows] = await pool.query(`
-    SELECT t.warehouse_id, w.name AS warehouse_name, COUNT(*) AS count,
-           GROUP_CONCAT(${valueColumn} ORDER BY t.id SEPARATOR ', ') AS tracked_items
-    FROM ${tableName} t
-    JOIN warehouses w ON w.id = t.warehouse_id
-    WHERE t.product_id = ? AND t.status = 'AVAILABLE'
-    GROUP BY t.warehouse_id, w.name
-    ORDER BY t.warehouse_id ASC
-  `, [product.id])
+  const { trackedRows, trackedConfig } = await loadTrackedRows(pool, product)
 
   const stockMap = normalizeWarehouseMap(stockRows)
   const trackedMap = normalizeWarehouseMap(trackedRows)
@@ -96,7 +142,7 @@ async function buildProductAuditEntry(pool, product) {
       count: Number(row.count || 0),
       trackedItems: row.tracked_items || ''
     })) : [],
-    trackedConfig: { tableName, valueColumn }
+    trackedConfig
   }
 }
 
@@ -147,6 +193,33 @@ export async function autoCorrectTrackedInventoryEasyCases(pool) {
     }
 
     const targetStock = positiveStockRows[0]
+    const rowsOutsideTarget = auditEntry.trackedRows.filter(row => row.warehouseId !== targetStock.warehouseId)
+    const isMedicinal = auditEntry.trackedConfig.tableName === 'product_batches'
+
+    if (isMedicinal && rowsOutsideTarget.length === 0 && Number(targetStock.count || 0) !== totalTrackedAvailable) {
+      const [updateResult] = await pool.query(
+        `UPDATE product_warehouse_stock
+         SET quantity = ?
+         WHERE product_id = ? AND warehouse_id = ?`,
+        [totalTrackedAvailable, auditEntry.productId, targetStock.warehouseId]
+      )
+
+      corrected.push({
+        productId: auditEntry.productId,
+        productType: auditEntry.productType,
+        productCode: auditEntry.productCode,
+        sku: auditEntry.sku,
+        name: auditEntry.name,
+        targetWarehouseId: targetStock.warehouseId,
+        targetWarehouseName: targetStock.warehouseName,
+        previousStockQty: Number(targetStock.count || 0),
+        correctedStockQty: totalTrackedAvailable,
+        movedCount: Number(updateResult?.affectedRows || 0),
+        trackedItems: auditEntry.trackedRows.flatMap(row => String(row.trackedItems || '').split(',').map(item => item.trim()).filter(Boolean))
+      })
+      continue
+    }
+
     if (Number(targetStock.count || 0) !== totalTrackedAvailable) {
       skipped.push({
         productId: auditEntry.productId,
@@ -158,15 +231,24 @@ export async function autoCorrectTrackedInventoryEasyCases(pool) {
       continue
     }
 
-    const rowsOutsideTarget = auditEntry.trackedRows.filter(row => row.warehouseId !== targetStock.warehouseId)
     if (rowsOutsideTarget.length === 0) continue
 
-    const [updateResult] = await pool.query(
-      `UPDATE ${auditEntry.trackedConfig.tableName}
-       SET warehouse_id = ?
-       WHERE product_id = ? AND status = 'AVAILABLE'`,
-      [targetStock.warehouseId, auditEntry.productId]
-    )
+    let updateResult
+    if (auditEntry.trackedConfig.tableName === 'product_batches') {
+      ;[updateResult] = await pool.query(
+        `UPDATE ${auditEntry.trackedConfig.tableName}
+         SET warehouse_id = ?
+         WHERE product_id = ? AND quantity > 0`,
+        [targetStock.warehouseId, auditEntry.productId]
+      )
+    } else {
+      ;[updateResult] = await pool.query(
+        `UPDATE ${auditEntry.trackedConfig.tableName}
+         SET warehouse_id = ?
+         WHERE product_id = ? AND status = 'AVAILABLE'`,
+        [targetStock.warehouseId, auditEntry.productId]
+      )
+    }
 
     corrected.push({
       productId: auditEntry.productId,
@@ -196,11 +278,11 @@ export async function autoCorrectTrackedInventoryEasyCases(pool) {
 export function logTrackedInventoryAudit(result) {
   const mismatchCount = Number(result?.mismatchCount || 0)
   if (mismatchCount === 0) {
-    console.log('[tracked-audit] Sin inconsistencias entre stock y series/IMEI disponibles.')
+    console.log('[tracked-audit] Sin inconsistencias entre stock y trazabilidad disponible.')
     return
   }
 
-  console.warn(`[tracked-audit] Se detectaron ${mismatchCount} productos con inconsistencias de stock y series/IMEI.`)
+  console.warn(`[tracked-audit] Se detectaron ${mismatchCount} productos con inconsistencias de stock y trazabilidad.`)
   for (const mismatch of result?.mismatches || []) {
     const productLabel = [
       mismatch.productCode || mismatch.sku || `ID ${mismatch.productId}`,
@@ -209,7 +291,7 @@ export function logTrackedInventoryAudit(result) {
     console.warn(`[tracked-audit] ${productLabel}`)
     for (const diff of mismatch.differences || []) {
       console.warn(
-        `[tracked-audit]   ${diff.warehouseName}: stock=${diff.stockQty}, disponibles=${diff.trackedQty}${diff.trackedItems ? `, items=${diff.trackedItems}` : ''}`
+        `[tracked-audit]   ${diff.warehouseName}: stock=${diff.stockQty}, trazabilidad=${diff.trackedQty}${diff.trackedItems ? `, items=${diff.trackedItems}` : ''}`
       )
     }
   }

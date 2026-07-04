@@ -3,6 +3,7 @@ import { useAuthStore } from '../store/auth'
 import { api, getProducts, getCategories, getBrands, getSuppliers, createProduct, updateProduct, deleteProduct, getProductDetails, getUnits, createBrand, createUnit, getDepartments, createDepartment, getWarehouses, getProductWarehouseStock, transferProductWarehouseStock, getShelves } from '../api'
 import { useConfigStore } from '../store/config'
 import { formatMoney } from '../utils/currency'
+import { formatBatchDate } from '../utils/date'
 import { resolveUnitName, buildUnitNameMap } from '../utils/units'
 import MobileBarcodeScannerButton from '../components/MobileBarcodeScannerButton'
 
@@ -45,6 +46,20 @@ interface Batch {
   batchNo: string
   expiryDate: string
   quantity: string
+}
+
+function getProductTypeLabel(productType?: string) {
+  const normalizedType = String(productType || 'GENERAL').toUpperCase()
+  switch (normalizedType) {
+    case 'MEDICINAL':
+      return 'FECHA DE VENCIMIENTO Y LOTES'
+    case 'IMEI':
+      return 'IMEI'
+    case 'SERIAL':
+      return 'SERIAL'
+    default:
+      return 'GENERAL'
+  }
 }
 
 export default function Products() {
@@ -1473,6 +1488,24 @@ export default function Products() {
                 <div style={{ fontWeight: 'bold', marginBottom: 4 }}>GENERAL</div>
                 <div style={{ fontSize: '0.9em', opacity: 0.8 }}>Productos estándar sin características especiales</div>
               </button>
+
+              <button
+                onClick={() => startCreateWithType('MEDICINAL')}
+                style={{
+                  padding: '12px 16px',
+                  background: '#1e293b',
+                  border: '1px solid var(--border)',
+                  borderRadius: 8,
+                  color: 'white',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s'
+                }}
+                onMouseOver={(e) => e.currentTarget.style.background = 'var(--surface-hover)'}
+                onMouseOut={(e) => e.currentTarget.style.background = '#1e293b'}
+              >
+                <div style={{ fontWeight: 'bold', marginBottom: 4 }}>FECHA DE VENCIMIENTO Y LOTES</div>
+                <div style={{ fontSize: '0.9em', opacity: 0.8 }}>Productos con control por lotes y fecha de vencimiento</div>
+              </button>
               
               <button 
                 onClick={() => startCreateWithType('IMEI')}
@@ -1538,7 +1571,7 @@ export default function Products() {
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <span style={{ fontSize: 12, padding: '7px 12px', borderRadius: 999, border: '1px solid var(--border)', background: 'var(--bg)', fontWeight: 700 }}>
-                  {formState.productType}
+                  {getProductTypeLabel(formState.productType)}
                 </span>
                 <button
                   onClick={() => { setShowCreate(false); setEditTarget(null); }}
@@ -1748,7 +1781,7 @@ export default function Products() {
 
                 {formState.productType === 'MEDICINAL' && (
                   <div style={{ border: '1px solid var(--border)', borderRadius: 20, padding: 16, background: 'var(--modal)' }}>
-                    <div style={{ fontWeight: 700, marginBottom: 12 }}>Datos medicinales</div>
+                    <div style={{ fontWeight: 700, marginBottom: 12 }}>Datos de control por lotes y vencimiento</div>
                     <div className="responsive-form-grid">
                       <div>
                         <label>Nombre alternativo</label>
@@ -1896,7 +1929,7 @@ export default function Products() {
                       </div>
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                         <span style={{ fontSize: 10, padding: '5px 8px', border: '1px solid var(--border)', borderRadius: 999, background: 'var(--modal)' }}>
-                          {String(details.productType || 'GENERAL').toUpperCase()}
+                          {getProductTypeLabel(details.productType)}
                         </span>
                         <span style={{ fontSize: 10, padding: '5px 8px', border: '1px solid var(--border)', borderRadius: 999, background: 'var(--modal)' }}>
                           {resolveUnitName(unitNameByCode, details.unit)}
@@ -2089,7 +2122,7 @@ export default function Products() {
                             {details.batches?.map((b: any, idx: number) => (
                               <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 0.8fr', gap: 8, padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
                                 <div><span style={{ opacity: 0.8 }}>Lote:</span> {b.batchNo || b.batch_no || '-'}</div>
-                                <div><span style={{ opacity: 0.8 }}>Vence:</span> {b.expiryDate || b.expiry_date || '-'}</div>
+                                <div><span style={{ opacity: 0.8 }}>Vence:</span> {formatBatchDate(b.expiryDate || b.expiry_date, '-')}</div>
                                 <div><span style={{ opacity: 0.8 }}>Cantidad:</span> {b.quantity ?? '-'}</div>
                               </div>
                             ))}

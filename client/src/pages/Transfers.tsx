@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { api } from '../api'
 import { useAuthStore } from '../store/auth'
-import { formatDateTime } from '../utils/date'
+import { formatBatchDate, formatDateTime } from '../utils/date'
 import MobileBarcodeScannerButton from '../components/MobileBarcodeScannerButton'
 
 function escapePrintHtml(value: string) {
@@ -45,6 +45,8 @@ interface TransferItem {
   availableBatches?: any[]
   availableImeis?: any[]
   availableSerials?: any[]
+  batches?: Array<{ batchNo: string; expiryDate?: string; quantity: number }>
+  batchSelectionMode?: 'MANUAL' | 'FEFO'
 }
 
 interface ProductBatchOption {
@@ -111,7 +113,7 @@ export default function Transfers() {
   const [view, setView] = useState<'list' | 'create'>('list')
   const [transfers, setTransfers] = useState<Transfer[]>([])
   const [warehouses, setWarehouses] = useState<Warehouse[]>([])
-  
+
   const [searchTerm, setSearchTerm] = useState('')
   const [filterWarehouse, setFilterWarehouse] = useState('')
   const [filterStatus, setFilterStatus] = useState('')
@@ -122,11 +124,11 @@ export default function Transfers() {
   const [items, setItems] = useState<TransferItem[]>([])
   const [notes, setNotes] = useState('')
   const [destinationEntryMode, setDestinationEntryMode] = useState<'AUTO' | 'TRANSFER'>('AUTO')
-  
+
   // Product Search State
   const [loadingSearch, setLoadingSearch] = useState(false)
   const [loadingProductId, setLoadingProductId] = useState<number | null>(null)
-  
+
   // Create Form Product Search
   const [createSearchTerm, setCreateSearchTerm] = useState('')
   const [createSearchNotice, setCreateSearchNotice] = useState('')
@@ -264,15 +266,15 @@ export default function Transfers() {
 
   const filteredTransfers = transfers.filter(t => {
     const term = searchTerm.toLowerCase()
-    const matchesSearch = 
+    const matchesSearch =
       t.id.toString().includes(term) ||
       t.source_warehouse_name?.toLowerCase().includes(term) ||
       t.destination_warehouse_name?.toLowerCase().includes(term) ||
       t.notes?.toLowerCase().includes(term) ||
       t.created_by_user?.toLowerCase().includes(term)
-    
-    const matchesWarehouse = !filterWarehouse || 
-      t.source_warehouse_id.toString() === filterWarehouse || 
+
+    const matchesWarehouse = !filterWarehouse ||
+      t.source_warehouse_id.toString() === filterWarehouse ||
       t.destination_warehouse_id.toString() === filterWarehouse
 
     const matchesStatus = !filterStatus || t.status === filterStatus
@@ -511,7 +513,7 @@ export default function Transfers() {
       setCreateSearchResults([])
       return
     }
-    
+
     if (!sourceId) {
         // Can't search stock correctly without source warehouse
         return
@@ -519,11 +521,11 @@ export default function Transfers() {
 
     setLoadingSearch(true)
     try {
-      const res = await api.get('/products', { 
-          params: { 
-              search: term, 
-              warehouseId: sourceId 
-          } 
+      const res = await api.get('/products', {
+          params: {
+              search: term,
+              warehouseId: sourceId
+          }
       })
       const filtered = (res.data as Product[]).filter((p: Product) => Number(p.stock || 0) > 0)
       setCreateSearchResults(filtered)
@@ -596,6 +598,76 @@ export default function Transfers() {
       }))
   }
 
+  const updateItemBatchQuantity = (index: number, batch: ProductBatchOption, quantityValue: number | string) => {
+    const nextQuantity = Math.max(0, Number(quantityValue || 0))
+    setItems(prev => prev.map((item, itemIndex) => {
+      if (itemIndex !== index) return item
+
+      const currentBatches = Array.isArray(item.batches) ? [...item.batches] : []
+      const existingIndex = currentBatches.findIndex(current => current.batchNo === batch.batchNo && current.expiryDate === batch.expiryDate)
+
+      if (nextQuantity <= 0) {
+        if (existingIndex >= 0) currentBatches.splice(existingIndex, 1)
+      } else if (existingIndex >= 0) {
+        currentBatches[existingIndex] = { ...currentBatches[existingIndex], quantity: nextQuantity }
+      } else {
+        currentBatches.push({ batchNo: batch.batchNo, expiryDate: batch.expiryDate, quantity: nextQuantity })
+      }
+
+      const nextTotal = currentBatches.reduce((sum, current) => sum + Number(current.quantity || 0), 0)
+
+      return {
+        ...item,
+        batchSelectionMode: 'MANUAL',
+        batches: currentBatches,
+        batchNo: currentBatches.length === 1 ? currentBatches[0].batchNo : undefined,
+        expiryDate: currentBatches.length === 1 ? currentBatches[0].expiryDate : undefined,
+        quantity: nextTotal > 0 ? nextTotal : item.quantity
+      }
+    }))
+  }
+
+  const applyItemBatchFefo = (index: number) => {
+    setItems(prev => prev.map((item, itemIndex) => {
+      if (itemIndex !== index) return item
+      if (!Array.isArray(item.availableBatches) || item.availableBatches.length === 0) return item
+
+      let pending = Number(item.quantity || 0)
+      const selected = []
+
+      for (const batch of item.availableBatches) {
+        if (pending <= 0) break
+        const available = Number(batch.quantity || 0)
+        if (available <= 0) continue
+        const takeQty = Math.min(available, pending)
+        selected.push({
+          batchNo: batch.batchNo,
+          expiryDate: batch.expiryDate,
+          quantity: takeQty
+        })
+        pending -= takeQty
+      }
+
+      if (pending > 0) {
+        alert(`No hay suficiente stock por lotes para completar ${item.quantity} unidad(es) de ${item.name}`)
+        return item
+      }
+
+      return {
+        ...item,
+        batchSelectionMode: 'FEFO',
+        batches: selected,
+        batchNo: undefined,
+        expiryDate: undefined,
+      }
+    }))
+  }
+
+  const getItemSelectedBatchQuantity = (item: TransferItem, batch: ProductBatchOption) => {
+    const found = (item.batches || []).find(current => current.batchNo === batch.batchNo && current.expiryDate === batch.expiryDate)
+    return Number(found?.quantity || 0)
+  }
+
   const toggleTrackedValue = (value: string) => {
     if (!trackedSelection) return
 
@@ -628,7 +700,7 @@ export default function Transfers() {
     if (!isAdmin && userWarehouseId && sourceId !== userWarehouseId) {
       return alert('Solo puedes transferir desde tu tienda asignada')
     }
-    
+
     // Validate selections
     const selectedImeis = items.map(item => item.imei).filter((value): value is string => Boolean(value))
     const selectedSerials = items.map(item => item.serial).filter((value): value is string => Boolean(value))
@@ -639,8 +711,25 @@ export default function Transfers() {
       return alert('Hay series repetidas en la transferencia')
     }
     for (const item of items) {
-        if (item.availableBatches?.length && !item.batchNo) {
-            return alert(`Seleccione lote para ${item.name}`)
+        if (item.availableBatches?.length) {
+            const selectedBatches = Array.isArray(item.batches) ? item.batches.filter(batch => Number(batch.quantity) > 0) : []
+            if (selectedBatches.length === 0 && !item.batchNo) {
+                return alert(`Seleccione lote para ${item.name}`)
+            }
+            const effectiveBatches = selectedBatches.length > 0
+              ? selectedBatches
+              : [{ batchNo: String(item.batchNo || '').trim(), expiryDate: item.expiryDate, quantity: Number(item.quantity || 0) }]
+            const totalQty = effectiveBatches.reduce((sum, batch) => sum + Number(batch.quantity || 0), 0)
+            if (totalQty !== Number(item.quantity || 0)) {
+                return alert(`La suma de lotes de ${item.name} debe coincidir con la cantidad a transferir`)
+            }
+            const invalidBatchQty = effectiveBatches.some(batch => {
+              const available = item.availableBatches?.find(option => option.batchNo === batch.batchNo && option.expiryDate === batch.expiryDate)
+              return Number(batch.quantity || 0) <= 0 || Number(batch.quantity || 0) > Number(available?.quantity || 0)
+            })
+            if (invalidBatchQty) {
+              return alert(`Uno o más lotes de ${item.name} exceden el stock disponible`)
+            }
         }
         if (item.availableImeis?.length && !item.imei) {
             return alert(`Seleccione IMEI para ${item.name}`)
@@ -681,16 +770,19 @@ export default function Transfers() {
         source_warehouse_id: sourceId,
         destination_warehouse_id: destId,
         destination_entry_mode: destinationEntryMode,
-        items: items.map(i => ({ 
-            product_id: i.productId, 
-            quantity: i.quantity, 
-            batch_no: i.batchNo, 
-            imei: i.imei, 
+        items: items.map(i => ({
+            product_id: i.productId,
+            quantity: i.quantity,
+            batch_no: i.batchNo,
+            expiry_date: i.expiryDate,
+            batches: i.batches,
+            batch_selection_mode: i.batchSelectionMode,
+            imei: i.imei,
             serial: i.serial
         })),
         notes
       }
-      
+
       await api.post('/transfers', payload)
       alert('Transferencia realizada con éxito')
       setView('list')
@@ -714,18 +806,18 @@ export default function Transfers() {
     <div className="page-container" style={{ padding: 20 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 20, alignItems: 'center' }}>
         <h2 style={{ margin: 0 }}>Transferencias de Inventario</h2>
-        
+
         {view === 'list' ? (
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-            <input 
-              placeholder={isAdmin ? 'Buscar...' : 'Buscar traslados recibidos...'} 
-              value={searchTerm} 
-              onChange={e => setSearchTerm(e.target.value)} 
+            <input
+              placeholder={isAdmin ? 'Buscar...' : 'Buscar traslados recibidos...'}
+              value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
               style={{ padding: 8, borderRadius: 6, border: '1px solid var(--border)', width: 200 }}
             />
-            
-            <select 
-              value={filterWarehouse} 
+
+            <select
+              value={filterWarehouse}
               onChange={e => setFilterWarehouse(e.target.value)}
               style={{ padding: 8, borderRadius: 6, border: '1px solid var(--border)' }}
             >
@@ -735,8 +827,8 @@ export default function Transfers() {
               ))}
             </select>
 
-            <select 
-              value={filterStatus} 
+            <select
+              value={filterStatus}
               onChange={e => setFilterStatus(e.target.value)}
               style={{ padding: 8, borderRadius: 6, border: '1px solid var(--border)' }}
             >
@@ -812,10 +904,10 @@ export default function Transfers() {
                   <td style={{ padding: 12, textAlign: 'right', fontWeight: 600 }}>{t.total_quantity}</td>
                   <td style={{ padding: 12, fontSize: 13, color: 'var(--muted)' }}>{t.created_by_user || 'N/A'}</td>
                   <td style={{ padding: 12, textAlign: 'center' }}>
-                    <span style={{ 
-                      padding: '4px 8px', 
-                      borderRadius: 6, 
-                      fontSize: 12, 
+                    <span style={{
+                      padding: '4px 8px',
+                      borderRadius: 6,
+                      fontSize: 12,
                       fontWeight: 600,
                       background: t.status === 'COMPLETED' ? '#dcfce7' : t.status === 'PENDING' ? '#fef9c3' : '#fee2e2',
                       color: t.status === 'COMPLETED' ? '#166534' : t.status === 'PENDING' ? '#854d0e' : '#991b1b'
@@ -849,9 +941,9 @@ export default function Transfers() {
             <div>
               <label className="label">Almacén Origen</label>
               {isAdmin ? (
-                <select 
-                  className="input" 
-                  value={sourceId || ''} 
+                <select
+                  className="input"
+                  value={sourceId || ''}
                   onChange={e => {
                       setSourceId(Number(e.target.value))
                       setItems([])
@@ -880,9 +972,9 @@ export default function Transfers() {
             </div>
             <div>
               <label className="label">Almacén Destino</label>
-              <select 
-                className="input" 
-                value={destId || ''} 
+              <select
+                className="input"
+                value={destId || ''}
                 onChange={e => setDestId(Number(e.target.value))}
               >
                 <option value="">Seleccionar...</option>
@@ -911,7 +1003,7 @@ export default function Transfers() {
           <div style={{ marginBottom: 20 }}>
             <label className="label">Agregar Productos (Búsqueda en Origen)</label>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-              <input 
+              <input
                 className="input"
                 placeholder={sourceId ? "Buscar por código, nombre, SKU o descripción..." : "Seleccione almacén origen primero"}
                 value={createSearchTerm}
@@ -930,8 +1022,8 @@ export default function Transfers() {
             {createSearchResults.length > 0 && (
               <div style={{ border: '1px solid var(--border)', maxHeight: 200, overflowY: 'auto', marginTop: 5 }}>
                 {createSearchResults.map(p => (
-                  <div 
-                    key={p.id} 
+                  <div
+                    key={p.id}
                     style={{ padding: 8, borderBottom: '1px solid var(--border)', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', gap: 12 }}
                     onClick={() => void addItem(p)}
                     className="hover:bg-gray-100 dark:hover:bg-gray-800"
@@ -1055,25 +1147,58 @@ export default function Transfers() {
                     </td>
                     <td>
                         {item.availableBatches && item.availableBatches.length > 0 && (
-                            <select 
-                                className="input small"
-                                value={item.batchNo || ''}
-                                onChange={e => {
-                                    const batch = item.availableBatches?.find(b => b.batchNo === e.target.value)
-                                    updateItemDetail(index, 'batchNo', e.target.value)
-                                    // Update max qty based on batch
-                                    if (batch) updateItemDetail(index, 'stockAtSource', batch.quantity)
-                                }}
-                            >
-                                <option value="">Seleccionar Lote...</option>
-                                {item.availableBatches.map((b: any) => (
-                                    <option key={b.batchNo} value={b.batchNo}>{b.batchNo} (Exp: {b.expiryDate}) - Stock: {b.quantity}</option>
-                                ))}
-                            </select>
+                            <div style={{ display: 'grid', gap: 8 }}>
+                                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                                  <select
+                                      className="input small"
+                                      value={item.batchNo || ''}
+                                      onChange={e => {
+                                          const batch = item.availableBatches?.find(b => b.batchNo === e.target.value)
+                                          updateItemDetail(index, 'batchSelectionMode', 'MANUAL')
+                                          updateItemDetail(index, 'batches', [])
+                                          updateItemDetail(index, 'batchNo', e.target.value)
+                                          updateItemDetail(index, 'expiryDate', batch?.expiryDate || '')
+                                          if (batch) {
+                                            updateItemDetail(index, 'stockAtSource', batch.quantity)
+                                            if (Number(item.quantity || 0) > Number(batch.quantity || 0)) {
+                                              updateItemDetail(index, 'quantity', Number(batch.quantity || 0))
+                                            }
+                                          }
+                                      }}
+                                  >
+                                      <option value="">Seleccionar Lote...</option>
+                                      {item.availableBatches.map((b: any) => (
+                                          <option key={`${b.batchNo}-${b.expiryDate}`} value={b.batchNo}>{b.batchNo} (Exp: {formatBatchDate(b.expiryDate)}) - Stock: {b.quantity}</option>
+                                      ))}
+                                  </select>
+                                  <button type="button" className="btn-secondary" onClick={() => applyItemBatchFefo(index)}>
+                                    Auto FEFO
+                                  </button>
+                                </div>
+                                <div style={{ display: 'grid', gap: 6 }}>
+                                  {item.availableBatches.map((b: any, batchIdx: number) => (
+                                    <div key={`${b.batchNo}-${b.expiryDate}-${batchIdx}`} style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 100px', gap: 8, alignItems: 'center' }}>
+                                      <div style={{ fontSize: 12 }}>
+                                        <div><strong>{b.batchNo}</strong></div>
+                                        <div style={{ color: 'var(--muted)' }}>Exp: {formatBatchDate(b.expiryDate)}</div>
+                                      </div>
+                                      <div style={{ fontSize: 12, color: 'var(--muted)' }}>Stock: {b.quantity}</div>
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        max={b.quantity}
+                                        className="input small"
+                                        value={getItemSelectedBatchQuantity(item, b) || ''}
+                                        onChange={e => updateItemBatchQuantity(index, b, e.target.value)}
+                                      />
+                                    </div>
+                                  ))}
+                                </div>
+                            </div>
                         )}
-                        
+
                         {item.availableImeis && item.availableImeis.length > 0 && (
-                            <select 
+                            <select
                                 className="input small"
                                 value={item.imei || ''}
                                 onClick={e => e.stopPropagation()}
@@ -1094,7 +1219,7 @@ export default function Transfers() {
                         )}
 
                         {item.availableSerials && item.availableSerials.length > 0 && (
-                            <select 
+                            <select
                                 className="input small"
                                 value={item.serial || ''}
                                 onClick={e => e.stopPropagation()}
@@ -1117,11 +1242,11 @@ export default function Transfers() {
                     </td>
                     <td>{item.stockAtSource}</td>
                     <td>
-                      <input 
-                        type="number" 
-                        min="1" 
+                      <input
+                        type="number"
+                        min="1"
                         max={item.stockAtSource}
-                        value={item.quantity} 
+                        value={item.quantity}
                         onChange={e => {
                             const val = parseInt(e.target.value) || 0
                             if (val > item.stockAtSource) {
@@ -1151,8 +1276,8 @@ export default function Transfers() {
 
           <div style={{ marginBottom: 20 }}>
             <label className="label">Notas / Observaciones</label>
-            <textarea 
-              className="input" 
+            <textarea
+              className="input"
               rows={3}
               value={notes}
               onChange={e => setNotes(e.target.value)}
@@ -1161,8 +1286,8 @@ export default function Transfers() {
 
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
             <button className="btn-secondary" onClick={() => setView('list')} disabled={submittingTransfer}>Cancelar</button>
-            <button 
-                className="btn-primary" 
+            <button
+                className="btn-primary"
                 onClick={handleSubmit}
                 disabled={submittingTransfer || !sourceId || !destId || items.length === 0 || (!isAdmin && !userWarehouseId)}
             >

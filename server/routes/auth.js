@@ -12,9 +12,9 @@ router.post('/login', async (req, res) => {
     if (pool) {
       // Fetch user and role name
       const [rows] = await pool.query(
-        `SELECT u.id, u.name, u.email, u.password, u.role_id, u.warehouse_id, r.code as role_code, r.name as role_name, w.name as warehouse_name 
-         FROM users u 
-         LEFT JOIN roles r ON u.role_id = r.id 
+        `SELECT u.id, u.name, u.email, u.password, u.role_id, u.warehouse_id, r.code as role_code, r.name as role_name, w.name as warehouse_name
+         FROM users u
+         LEFT JOIN roles r ON u.role_id = r.id
          LEFT JOIN warehouses w ON u.warehouse_id = w.id
          WHERE u.email = ? AND u.active = 1 LIMIT 1`,
         [email]
@@ -33,9 +33,9 @@ router.post('/login', async (req, res) => {
 
       // Fetch permissions
       const [perms] = await pool.query(
-        `SELECT p.code 
-         FROM permissions p 
-         JOIN role_permissions rp ON p.id = rp.permission_id 
+        `SELECT p.code
+         FROM permissions p
+         JOIN role_permissions rp ON p.id = rp.permission_id
          WHERE rp.role_id = ?`,
         [user.role_id]
       )

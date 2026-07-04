@@ -484,7 +484,7 @@ router.get('/audit/tracked-inventory', authMiddleware, roleMiddleware(['ADMIN'])
   } catch (err) {
     console.error('Config TRACKED AUDIT error:', err)
     const reason = err?.message ? `: ${err.message}` : ''
-    return res.status(500).json({ error: `No se pudo ejecutar la auditoria de series e IMEI${reason}` })
+    return res.status(500).json({ error: `No se pudo ejecutar la auditoria de inventario trazable${reason}` })
   }
 })
 
@@ -496,7 +496,7 @@ router.post('/audit/tracked-inventory/autocorrect', authMiddleware, roleMiddlewa
   } catch (err) {
     console.error('Config TRACKED AUTO-CORRECT error:', err)
     const reason = err?.message ? `: ${err.message}` : ''
-    return res.status(500).json({ error: `No se pudo autocorregir los casos faciles de series e IMEI${reason}` })
+    return res.status(500).json({ error: `No se pudo autocorregir los casos faciles de inventario trazable${reason}` })
   }
 })
 

@@ -9,3 +9,10 @@ export const formatDateTime = (date: string | Date | number | undefined | null, 
   if (!date) return '-'
   return dayjs(date).format(format)
 }
+
+export const formatBatchDate = (date: string | Date | number | undefined | null, empty = 'N/A') => {
+  if (!date) return empty
+  const parsed = dayjs(date)
+  if (!parsed.isValid()) return String(date)
+  return parsed.format('DD/MM/YYYY')
+}

@@ -68,16 +68,41 @@ function buildAdjustmentNotes({ baseNotes, qty, batches, imeis, serials }) {
   return parts.join(' | ').slice(0, 255) || 'Ajuste manual de inventario'
 }
 
+function normalizeBatchSelections(rawBatches) {
+  const map = new Map()
+
+  for (const rawBatch of Array.isArray(rawBatches) ? rawBatches : []) {
+    const batchNo = String(rawBatch?.batchNo ?? rawBatch?.batch_no ?? '').trim()
+    const expiryDateValue = String(rawBatch?.expiryDate ?? rawBatch?.expiry_date ?? '').trim()
+    const expiryDate = expiryDateValue || null
+    const quantity = Number(rawBatch?.quantity || 0)
+
+    if (!batchNo || quantity <= 0) continue
+
+    const key = `${batchNo}__${expiryDate || ''}`
+    const current = map.get(key)
+
+    if (current) {
+      current.quantity += quantity
+      continue
+    }
+
+    map.set(key, { batchNo, expiryDate, quantity })
+  }
+
+  return Array.from(map.values())
+}
+
 // Listar movimientos de inventario
 router.get('/movements', authMiddleware, async (req, res) => {
   try {
     const pool = await getPool()
-    
+
     // Filtros opcionales (query params)
     const { productId, warehouseId, type, limit = 100, startDate, endDate, kardex } = req.query
-    
+
     let query = `
-      SELECT 
+      SELECT
         im.id,
         im.created_at as date,
         im.type,
@@ -97,17 +122,17 @@ router.get('/movements', authMiddleware, async (req, res) => {
       WHERE 1=1
     `
     const params = []
-    
+
     if (productId) {
       query += ` AND im.product_id = ?`
       params.push(productId)
     }
-    
+
     if (warehouseId) {
       query += ` AND im.warehouse_id = ?`
       params.push(warehouseId)
     }
-    
+
     if (type) {
       query += ` AND im.type = ?`
       params.push(type)
@@ -122,7 +147,7 @@ router.get('/movements', authMiddleware, async (req, res) => {
       query += ` AND im.created_at <= ?`
       params.push(endDate + ' 23:59:59')
     }
-    
+
     if (kardex === 'true') {
       query += ` ORDER BY im.created_at ASC`
       // No limit for kardex (or very high)
@@ -130,7 +155,7 @@ router.get('/movements', authMiddleware, async (req, res) => {
       query += ` ORDER BY im.created_at DESC LIMIT ?`
       params.push(Number(limit))
     }
-    
+
     const [rows] = await pool.query(query, params)
     return res.json(rows)
   } catch (err) {
@@ -144,10 +169,10 @@ router.get('/stock', authMiddleware, async (req, res) => {
   try {
     const pool = await getPool()
     const { warehouseId } = req.query
-    
+
     // 1. Obtener stock base (product_warehouse_stock)
     let query = `
-      SELECT 
+      SELECT
         i.id,
         i.product_id,
         i.quantity,
@@ -164,40 +189,40 @@ router.get('/stock', authMiddleware, async (req, res) => {
       WHERE 1=1
     `
     const params = []
-    
+
     if (warehouseId) {
       query += ` AND i.warehouse_id = ?`
       params.push(warehouseId)
     }
-    
+
     query += ` ORDER BY p.name ASC`
-    
+
     const [rows] = await pool.query(query, params)
-    
+
     // 2. Enriquecer con detalles (IMEI, Serial, Lote) si corresponde
     // Para no hacer N queries, podemos hacer una segunda query masiva o hacerlo on-demand.
     // Dado que es un reporte, intentaremos agrupar.
-    
+
     // Filtramos productos que requieren detalle
     const productsWithDetails = rows.filter(r => ['IMEI', 'SERIAL', 'MEDICINAL'].includes(r.product_type))
-    
+
     if (productsWithDetails.length > 0) {
         // Extraer IDs únicos para evitar duplicados en la cláusula IN
         const productIds = [...new Set(productsWithDetails.map(r => r.product_id))]
-        
+
         if (productIds.length > 0) {
           // Fetch IMEIs
           const [imeis] = await pool.query(
               `SELECT product_id, imei, status, warehouse_id FROM product_imeis WHERE product_id IN (?) AND status = 'AVAILABLE'`,
               [productIds]
           )
-          
+
           // Fetch Serials
           const [serials] = await pool.query(
               `SELECT product_id, serial_no, status, warehouse_id FROM product_serials WHERE product_id IN (?) AND status = 'AVAILABLE'`,
               [productIds]
           )
-          
+
           // Fetch Batches (Lotes) - MEDICINAL
           const [batches] = await pool.query(
               `SELECT product_id, batch_no, quantity, expiry_date, warehouse_id FROM product_batches WHERE product_id IN (?) AND quantity > 0`,
@@ -213,10 +238,10 @@ router.get('/stock', authMiddleware, async (req, res) => {
               if (row.product_type === 'IMEI') {
                   const filtered = imeis
                     .filter(x => x.product_id === row.product_id && (x.warehouse_id ? Number(x.warehouse_id) : 1) === currentWarehouseId)
-                  
+
                   const items = filtered.map(x => x.imei)
                   const detailQty = items.length
-                  
+
                   let detailStr = items.length > 0 ? items.join('\n') : ''
                   if (detailQty !== stockQty) {
                       detailStr += `\n[⚠️ Mismatch: ${detailQty} IMEIs vs Stock ${stockQty}]`
@@ -226,7 +251,7 @@ router.get('/stock', authMiddleware, async (req, res) => {
               } else if (row.product_type === 'SERIAL') {
                   const filtered = serials
                     .filter(x => x.product_id === row.product_id && (x.warehouse_id ? Number(x.warehouse_id) : 1) === currentWarehouseId)
-                  
+
                   const items = filtered.map(x => x.serial_no)
                   const detailQty = items.length
 
@@ -239,10 +264,10 @@ router.get('/stock', authMiddleware, async (req, res) => {
               } else if (row.product_type === 'MEDICINAL') {
                   const filtered = batches
                       .filter(x => x.product_id === row.product_id && (x.warehouse_id ? Number(x.warehouse_id) : 1) === currentWarehouseId)
-                  
+
                   const detailQty = filtered.reduce((sum, b) => sum + Number(b.quantity), 0)
                   const items = filtered.map(x => `Lote: ${x.batch_no} (${x.quantity}) [Vence: ${x.expiry_date ? new Date(x.expiry_date).toISOString().slice(0,10) : 'N/A'}]`)
-                  
+
                   let detailStr = items.length > 0 ? items.join('\n') : ''
                   if (detailQty !== stockQty) {
                        detailStr += `\n[⚠️ Mismatch: Lotes suman ${detailQty} vs Stock ${stockQty}]`
@@ -298,7 +323,7 @@ router.post('/adjust', authMiddleware, async (req, res) => {
       })
     }).catch(() => {})
     // #endregion
-    
+
     if (!productId || !warehouseId || !type || !quantity) {
       return res.status(400).json({ error: 'Faltan datos requeridos' })
     }
@@ -314,7 +339,7 @@ router.post('/adjust', authMiddleware, async (req, res) => {
     const pool = await getPool()
     await ensureInventoryAdjustmentTypes(pool)
     const conn = await pool.getConnection()
-    
+
     try {
       await conn.beginTransaction()
 
@@ -336,6 +361,10 @@ router.post('/adjust', authMiddleware, async (req, res) => {
         if (qty < 0) throw new Error('El stock inicial no puede ser negativo')
       }
 
+      const normalizedBatchSelections = normalizedProductType === 'MEDICINAL'
+        ? normalizeBatchSelections(batches)
+        : []
+
       if (normalizedProductType === 'IMEI') {
         if (!Array.isArray(imeis) || imeis.length !== absQty) {
           throw new Error(`Debes ingresar exactamente ${absQty} IMEI(s) para el ajuste`)
@@ -346,11 +375,20 @@ router.post('/adjust', authMiddleware, async (req, res) => {
           throw new Error(`Debes ingresar exactamente ${absQty} serie(s) para el ajuste`)
         }
       }
+      if (normalizedProductType === 'MEDICINAL') {
+        if (normalizedBatchSelections.length === 0) {
+          throw new Error(`Debes seleccionar al menos un lote para ajustar ${absQty} unidad(es)`)
+        }
+        const batchQty = normalizedBatchSelections.reduce((sum, batch) => sum + Number(batch.quantity || 0), 0)
+        if (batchQty !== absQty) {
+          throw new Error(`La suma de lotes (${batchQty}) debe coincidir con la cantidad del ajuste (${absQty})`)
+        }
+      }
 
       const movementNotes = buildAdjustmentNotes({
         baseNotes: notes,
         qty,
-        batches,
+        batches: normalizedBatchSelections,
         imeis,
         serials
       })
@@ -412,14 +450,28 @@ router.post('/adjust', authMiddleware, async (req, res) => {
       // Si es una entrada (qty > 0), registrar detalles
       if (qty > 0) {
         // 1. Lotes (Medicinal)
-        if (batches && Array.isArray(batches) && batches.length > 0) {
-          for (const batch of batches) {
-            if (batch.batchNo && batch.expiryDate && batch.quantity > 0) {
+        if (normalizedBatchSelections.length > 0) {
+          for (const batch of normalizedBatchSelections) {
+            const [existingRows] = await conn.query(
+              `SELECT id
+               FROM product_batches
+               WHERE product_id = ? AND batch_no = ? AND expiry_date <=> ? AND warehouse_id = ?
+               LIMIT 1`,
+              [productId, batch.batchNo, batch.expiryDate, warehouseId]
+            )
+
+            if (Array.isArray(existingRows) && existingRows.length > 0) {
               await conn.query(
-                'INSERT INTO product_batches (product_id, batch_no, expiry_date, quantity, warehouse_id) VALUES (?, ?, ?, ?, ?)',
-                [productId, batch.batchNo, batch.expiryDate, batch.quantity, warehouseId]
+                'UPDATE product_batches SET quantity = quantity + ? WHERE id = ?',
+                [batch.quantity, existingRows[0].id]
               )
+              continue
             }
+
+            await conn.query(
+              'INSERT INTO product_batches (product_id, batch_no, expiry_date, quantity, warehouse_id) VALUES (?, ?, ?, ?, ?)',
+              [productId, batch.batchNo, batch.expiryDate, batch.quantity, warehouseId]
+            )
           }
         }
 
@@ -509,6 +561,24 @@ router.post('/adjust', authMiddleware, async (req, res) => {
       }
 
       if (qty < 0) {
+        if (normalizedBatchSelections.length > 0) {
+          for (const batch of normalizedBatchSelections) {
+            const [result] = await conn.query(
+              `UPDATE product_batches
+               SET quantity = quantity - ?
+               WHERE product_id = ?
+                 AND batch_no = ?
+                 AND expiry_date <=> ?
+                 AND warehouse_id = ?
+                 AND quantity >= ?`,
+              [batch.quantity, productId, batch.batchNo, batch.expiryDate, warehouseId, batch.quantity]
+            )
+            if (!result.affectedRows) {
+              throw new Error(`El lote ${batch.batchNo} con vencimiento ${batch.expiryDate} no está disponible en la cantidad solicitada`)
+            }
+          }
+        }
+
         if (imeis && Array.isArray(imeis) && imeis.length > 0) {
           for (const imei of imeis) {
             if (!imei) continue

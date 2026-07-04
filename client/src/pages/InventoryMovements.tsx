@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo } from 'react'
 import { api, getProducts, getWarehouses, getCategories, getBrands, getProductWarehouseStock } from '../api'
 import { useConfigStore } from '../store/config'
 import { formatMoney } from '../utils/currency'
+import { formatBatchDate } from '../utils/date'
 import MobileBarcodeScannerButton from '../components/MobileBarcodeScannerButton'
 
 interface Movement {
@@ -38,6 +39,14 @@ interface Batch {
   quantity: number
 }
 
+function normalizeBatchInput(batch: Partial<Batch>): Batch {
+  return {
+    batchNo: String(batch.batchNo || '').trim(),
+    expiryDate: String(batch.expiryDate || '').trim(),
+    quantity: Number(batch.quantity || 0)
+  }
+}
+
 interface WarehouseStock {
   warehouseId: number
   warehouseName: string
@@ -46,7 +55,7 @@ interface WarehouseStock {
 
 export default function InventoryMovements() {
   const [activeTab, setActiveTab] = useState<'products' | 'history' | 'kardex'>('products')
-  
+
   // History state
   const [items, setItems] = useState<Movement[]>([])
   const [loadingHistory, setLoadingHistory] = useState(false)
@@ -78,7 +87,7 @@ export default function InventoryMovements() {
   // Shared state
   const [warehouses, setWarehouses] = useState<any[]>([])
   const currency = useConfigStore(s => s.config?.currency || 'USD')
-  
+
   // Modal state
   const [showAdjust, setShowAdjust] = useState(false)
   const [adjustForm, setAdjustForm] = useState<{
@@ -104,8 +113,10 @@ export default function InventoryMovements() {
   const [currentWarehouseStock, setCurrentWarehouseStock] = useState<number | null>(null)
   const [productWarehouseStocks, setProductWarehouseStocks] = useState<WarehouseStock[]>([])
   const [productWarehouseStockMap, setProductWarehouseStockMap] = useState<Record<number, WarehouseStock[]>>({})
+  const [loadingWarehouseStockMap, setLoadingWarehouseStockMap] = useState<Record<number, boolean>>({})
   const [availableAdjustImeis, setAvailableAdjustImeis] = useState<string[]>([])
   const [availableAdjustSerials, setAvailableAdjustSerials] = useState<string[]>([])
+  const [availableAdjustBatches, setAvailableAdjustBatches] = useState<Batch[]>([])
   const [savingAdjust, setSavingAdjust] = useState(false)
 
   // Helper for array inputs
@@ -122,7 +133,7 @@ export default function InventoryMovements() {
     newBatches.splice(idx, 1)
     setAdjustForm({ ...adjustForm, batches: newBatches })
   }
-  
+
   const updateImei = (idx: number, val: string) => {
     const newImeis = [...adjustForm.imeis]
     newImeis[idx] = val
@@ -134,6 +145,38 @@ export default function InventoryMovements() {
     newSerials[idx] = val
     setAdjustForm({ ...adjustForm, serials: newSerials })
   }
+
+  const updateAdjustBatchSelection = (batch: Batch, quantityValue: number | string) => {
+    const nextQuantity = Math.max(0, Number(quantityValue || 0))
+    setAdjustForm(prev => {
+      const nextBatches = [...prev.batches]
+      const existingIndex = nextBatches.findIndex(item => item.batchNo === batch.batchNo && item.expiryDate === batch.expiryDate)
+
+      if (nextQuantity <= 0) {
+        if (existingIndex >= 0) nextBatches.splice(existingIndex, 1)
+      } else if (existingIndex >= 0) {
+        nextBatches[existingIndex] = { ...nextBatches[existingIndex], quantity: nextQuantity }
+      } else {
+        nextBatches.push({ batchNo: batch.batchNo, expiryDate: batch.expiryDate, quantity: nextQuantity })
+      }
+
+      return { ...prev, batches: nextBatches }
+    })
+  }
+
+  const getSelectedAdjustBatchQuantity = (batch: Batch) => {
+    const found = adjustForm.batches.find(item => item.batchNo === batch.batchNo && item.expiryDate === batch.expiryDate)
+    return Number(found?.quantity || 0)
+  }
+
+  const isAvailableAdjustBatch = (batch: Partial<Batch>) =>
+    availableAdjustBatches.some(
+      option =>
+        String(option.batchNo || '').trim() === String(batch.batchNo || '').trim() &&
+        String(option.expiryDate || '').trim() === String(batch.expiryDate || '').trim()
+    )
+
+  const customPositiveBatches = adjustForm.batches.filter(batch => !isAvailableAdjustBatch(batch))
 
   // Effect to sync IMEI/Serial inputs with Quantity
   useEffect(() => {
@@ -156,11 +199,6 @@ export default function InventoryMovements() {
         } else if (qty < currentLen) {
             setAdjustForm(prev => ({ ...prev, serials: prev.serials.slice(0, qty) }))
         }
-    } else if (pt === 'MEDICINAL' && Number(adjustForm.quantity) > 0) {
-        // For medicinal, we don't auto-create rows based on quantity, but we could initialize one if empty
-        if (adjustForm.batches.length === 0) {
-            setAdjustForm(prev => ({ ...prev, batches: [{ batchNo: '', expiryDate: '', quantity: qty }] }))
-        }
     }
   }, [adjustForm.quantity, selectedProduct, showAdjust])
 
@@ -178,12 +216,22 @@ export default function InventoryMovements() {
   useEffect(() => {
     if (activeTab !== 'products' || products.length === 0) return
 
-    const missingProducts = products.filter(product => !productWarehouseStockMap[product.id])
+    const missingProducts = products.filter(product =>
+      !Object.prototype.hasOwnProperty.call(productWarehouseStockMap, product.id) &&
+      !loadingWarehouseStockMap[product.id]
+    )
     if (missingProducts.length === 0) return
 
     let cancelled = false
 
     const loadProductStocks = async () => {
+      const missingProductIds = missingProducts.map(product => product.id)
+      setLoadingWarehouseStockMap(prev => {
+        const next = { ...prev }
+        for (const productId of missingProductIds) next[productId] = true
+        return next
+      })
+
       try {
         const entries = await Promise.all(
           missingProducts.map(async product => {
@@ -203,6 +251,13 @@ export default function InventoryMovements() {
         })
       } catch (err) {
         if (!cancelled) console.error(err)
+      } finally {
+        if (cancelled) return
+        setLoadingWarehouseStockMap(prev => {
+          const next = { ...prev }
+          for (const productId of missingProductIds) next[productId] = false
+          return next
+        })
       }
     }
 
@@ -211,7 +266,7 @@ export default function InventoryMovements() {
     return () => {
       cancelled = true
     }
-  }, [activeTab, products, productWarehouseStockMap])
+  }, [activeTab, products, productWarehouseStockMap, loadingWarehouseStockMap])
 
   // Load history when tab is active or filters change
   useEffect(() => {
@@ -226,6 +281,7 @@ export default function InventoryMovements() {
       setProductWarehouseStocks([])
       setAvailableAdjustImeis([])
       setAvailableAdjustSerials([])
+      setAvailableAdjustBatches([])
 
       const fetchStockAndDetails = async () => {
         try {
@@ -245,10 +301,19 @@ export default function InventoryMovements() {
             setCurrentWarehouseStock(whStock ? whStock.quantity : 0)
             setAvailableAdjustImeis(Array.isArray(detailRes?.data?.imeis) ? detailRes.data.imeis : [])
             setAvailableAdjustSerials(Array.isArray(detailRes?.data?.serials) ? detailRes.data.serials : [])
+            const nextBatches = Array.isArray(detailRes?.data?.batches) ? detailRes.data.batches : []
+            setAvailableAdjustBatches(nextBatches)
+            setAdjustForm(prev => ({
+              ...prev,
+              batches: prev.batches.filter(current =>
+                nextBatches.some((batch: Batch) => batch.batchNo === current.batchNo && batch.expiryDate === current.expiryDate)
+              )
+            }))
           } else {
             setCurrentWarehouseStock(null)
             setAvailableAdjustImeis([])
             setAvailableAdjustSerials([])
+            setAvailableAdjustBatches([])
           }
         } catch (err) {
           if (cancelled) return
@@ -257,6 +322,7 @@ export default function InventoryMovements() {
           setProductWarehouseStocks([])
           setAvailableAdjustImeis([])
           setAvailableAdjustSerials([])
+          setAvailableAdjustBatches([])
         }
       }
       fetchStockAndDetails()
@@ -268,6 +334,7 @@ export default function InventoryMovements() {
       setProductWarehouseStocks([])
       setAvailableAdjustImeis([])
       setAvailableAdjustSerials([])
+      setAvailableAdjustBatches([])
     }
   }, [showAdjust, selectedProduct, adjustForm.warehouseId])
 
@@ -294,11 +361,50 @@ export default function InventoryMovements() {
     setLoadingProducts(true)
     try {
       const data = await getProducts()
-      setProducts(Array.isArray(data) ? data : [])
+      const nextProducts = Array.isArray(data) ? data : []
+      setProducts(nextProducts)
+      setProductWarehouseStockMap({})
+      setLoadingWarehouseStockMap({})
     } catch (err) {
       console.error(err)
     } finally {
       setLoadingProducts(false)
+    }
+  }
+
+  const refreshProductsWarehouseStock = async (productIds: number[]) => {
+    const uniqueProductIds = [...new Set(productIds.map(id => Number(id)).filter(id => id > 0))]
+    if (uniqueProductIds.length === 0) return
+
+    setLoadingWarehouseStockMap(prev => {
+      const next = { ...prev }
+      for (const productId of uniqueProductIds) next[productId] = true
+      return next
+    })
+
+    try {
+      const entries = await Promise.all(
+        uniqueProductIds.map(async productId => {
+          const stocks = await getProductWarehouseStock(productId)
+          return [productId, Array.isArray(stocks) ? stocks : []] as const
+        })
+      )
+
+      setProductWarehouseStockMap(prev => {
+        const next = { ...prev }
+        for (const [productId, stocks] of entries) {
+          next[productId] = stocks
+        }
+        return next
+      })
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setLoadingWarehouseStockMap(prev => {
+        const next = { ...prev }
+        for (const productId of uniqueProductIds) next[productId] = false
+        return next
+      })
     }
   }
 
@@ -308,7 +414,7 @@ export default function InventoryMovements() {
       let url = '/inventory/movements?limit=100'
       if (filters.type) url += `&type=${filters.type}`
       if (filters.warehouseId) url += `&warehouseId=${filters.warehouseId}`
-      
+
       const { data } = await api.get(url)
       setItems(data)
     } catch (err) {
@@ -345,9 +451,9 @@ export default function InventoryMovements() {
       if (kardexFilters.warehouseId) url += `&warehouseId=${kardexFilters.warehouseId}`
       if (kardexFilters.startDate) url += `&startDate=${kardexFilters.startDate}`
       if (kardexFilters.endDate) url += `&endDate=${kardexFilters.endDate}`
-      
+
       const { data } = await api.get(url)
-      
+
       // Calculate running balance
       let balance = 0
       const withBalance = data.map((m: Movement) => {
@@ -355,7 +461,7 @@ export default function InventoryMovements() {
         balance += signedQty
         return { ...m, signedQty, balance }
       })
-      
+
       setKardexItems(withBalance)
     } catch (err) {
       console.error(err)
@@ -378,7 +484,8 @@ export default function InventoryMovements() {
     setProductWarehouseStocks([])
     setAvailableAdjustImeis([])
     setAvailableAdjustSerials([])
-    
+    setAvailableAdjustBatches([])
+
     setAdjustForm({
       productId: product ? String(product.id) : '',
       warehouseId: defaultWh,
@@ -404,6 +511,16 @@ export default function InventoryMovements() {
     }
     const qty = Number(adjustForm.quantity)
     const pt = (selectedProduct?.productType || 'GENERAL').toUpperCase()
+    const enteredMedicinalBatches = adjustForm.batches
+      .map(normalizeBatchInput)
+      .filter(batch => batch.quantity > 0 || batch.batchNo || batch.expiryDate)
+    const selectedMedicinalBatches = availableAdjustBatches
+      .map(batch => ({
+        batchNo: String(batch.batchNo || '').trim(),
+        expiryDate: String(batch.expiryDate || '').trim(),
+        quantity: getSelectedAdjustBatchQuantity(batch)
+      }))
+      .filter(batch => batch.quantity > 0)
     const debugTraceId = `adj-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 
     // #region debug-point A:adjust-click
@@ -430,13 +547,17 @@ export default function InventoryMovements() {
 
     if (qty > 0) {
         if (pt === 'MEDICINAL') {
-            const sum = adjustForm.batches.reduce((acc, b) => acc + Number(b.quantity), 0)
-            if (sum !== qty) {
-                alert(`La suma de lotes (${sum}) debe coincidir con la cantidad total (${qty})`)
+            if (enteredMedicinalBatches.length === 0) {
+                alert('Agrega al menos un lote para el ajuste')
                 return
             }
-            if (adjustForm.batches.some(b => !b.batchNo || !b.expiryDate)) {
-                alert('Complete todos los campos de lote y vencimiento')
+            if (enteredMedicinalBatches.some(b => !b.batchNo || Number(b.quantity) <= 0)) {
+                alert('Cada lote ingresado debe incluir lote y cantidad válida')
+                return
+            }
+            const sum = enteredMedicinalBatches.reduce((acc, b) => acc + Number(b.quantity), 0)
+            if (sum !== qty) {
+                alert(`La suma de lotes (${sum}) debe coincidir con la cantidad total (${qty})`)
                 return
             }
         } else if (pt === 'IMEI') {
@@ -465,7 +586,29 @@ export default function InventoryMovements() {
 
     if (qty < 0) {
       const requiredCount = Math.abs(qty)
-      if (pt === 'IMEI') {
+      if (pt === 'MEDICINAL') {
+        if (selectedMedicinalBatches.length === 0) {
+          alert('Seleccione al menos un lote para descontar')
+          return
+        }
+        if (selectedMedicinalBatches.some(batch => !batch.batchNo)) {
+          alert('Todos los lotes seleccionados deben incluir un lote válido')
+          return
+        }
+        const sum = selectedMedicinalBatches.reduce((acc, batch) => acc + Number(batch.quantity || 0), 0)
+        if (sum !== requiredCount) {
+          alert(`La suma de lotes seleccionados (${sum}) debe coincidir con la cantidad a descontar (${requiredCount})`)
+          return
+        }
+        const hasExcess = selectedMedicinalBatches.some(batch => {
+          const available = availableAdjustBatches.find(option => option.batchNo === batch.batchNo && option.expiryDate === batch.expiryDate)
+          return Number(batch.quantity || 0) > Number(available?.quantity || 0)
+        })
+        if (hasExcess) {
+          alert('Una o más cantidades por lote exceden el stock disponible')
+          return
+        }
+      } else if (pt === 'IMEI') {
         if (adjustForm.imeis.some(i => !i.trim())) {
           alert('Seleccione todos los IMEIs que se van a descontar')
           return
@@ -487,7 +630,7 @@ export default function InventoryMovements() {
         }
       }
     }
-    
+
     try {
       setSavingAdjust(true)
       const adjustedImeis = qty < 0 ? adjustForm.imeis.map(i => i.trim().toUpperCase()).filter(Boolean) : []
@@ -516,6 +659,9 @@ export default function InventoryMovements() {
       // #endregion
       await api.post('/inventory/adjust', {
         ...adjustForm,
+        batches: pt === 'MEDICINAL'
+          ? (qty < 0 ? selectedMedicinalBatches : enteredMedicinalBatches.filter(batch => batch.quantity > 0))
+          : adjustForm.batches,
         debugTraceId,
         productType: selectedProduct?.productType || 'GENERAL'
       })
@@ -550,7 +696,8 @@ export default function InventoryMovements() {
       alert('Ajuste registrado correctamente')
       setShowAdjust(false)
       if (activeTab === 'products') {
-        loadProducts()
+        await loadProducts()
+        await refreshProductsWarehouseStock([Number(adjustForm.productId)])
       }
       if (activeTab === 'history') {
         loadHistory()
@@ -640,8 +787,8 @@ export default function InventoryMovements() {
   const filteredProducts = useMemo(() => {
     if (!productQuery) return products
     const q = productQuery.toLowerCase()
-    return products.filter(p => 
-      p.name.toLowerCase().includes(q) || 
+    return products.filter(p =>
+      p.name.toLowerCase().includes(q) ||
       p.sku.toLowerCase().includes(q) ||
       (p.productCode && p.productCode.toLowerCase().includes(q)) ||
       (p.description && p.description.toLowerCase().includes(q))
@@ -661,11 +808,17 @@ export default function InventoryMovements() {
   }, [brands])
 
   const renderWarehouseStockBreakdown = (productId: number, globalStock: number, compact = false) => {
+    const hasLoadedStocks = Object.prototype.hasOwnProperty.call(productWarehouseStockMap, productId)
     const stocks = productWarehouseStockMap[productId] || []
+    const isLoadingStocks = Boolean(loadingWarehouseStockMap[productId]) || !hasLoadedStocks
 
     return (
       <div style={{ display: 'grid', gap: compact ? 2 : 4 }}>
-        {stocks.length > 0 ? (
+        {isLoadingStocks ? (
+          <div style={{ fontSize: compact ? 11 : 12, color: 'var(--muted)' }}>
+            Cargando stock por tienda...
+          </div>
+        ) : stocks.length > 0 ? (
           stocks.map(stock => (
             <div
               key={`${productId}-${stock.warehouseId}`}
@@ -685,7 +838,7 @@ export default function InventoryMovements() {
           ))
         ) : (
           <div style={{ fontSize: compact ? 11 : 12, color: 'var(--muted)' }}>
-            Cargando stock por tienda...
+            Sin stock por tienda registrado
           </div>
         )}
         <div
@@ -716,19 +869,19 @@ export default function InventoryMovements() {
     <div className="page-container" style={{ padding: 20 }}>
       <div style={{ marginBottom: 20 }}>
         <h2 style={{ marginBottom: 16 }}>Gestión de Inventario</h2>
-        
-        <div style={{ 
-          display: 'flex', 
-          gap: 12, 
+
+        <div style={{
+          display: 'flex',
+          gap: 12,
           paddingBottom: 0,
           marginBottom: 20,
           borderBottom: '1px solid var(--border)',
           overflowX: 'auto'
         }}>
-          <button 
+          <button
             onClick={() => setActiveTab('products')}
-            style={{ 
-              padding: '12px 20px', 
+            style={{
+              padding: '12px 20px',
               border: 'none',
               background: 'transparent',
               color: activeTab === 'products' ? 'var(--primary)' : 'var(--muted)',
@@ -757,11 +910,11 @@ export default function InventoryMovements() {
             </div>
             Ajustar Stock
           </button>
-          
-          <button 
+
+          <button
             onClick={() => setActiveTab('history')}
-            style={{ 
-              padding: '12px 20px', 
+            style={{
+              padding: '12px 20px',
               border: 'none',
               background: 'transparent',
               color: activeTab === 'history' ? '#f59e0b' : 'var(--muted)',
@@ -789,11 +942,11 @@ export default function InventoryMovements() {
             </div>
             Historial de Movimientos
           </button>
-          
-          <button 
+
+          <button
             onClick={() => setActiveTab('kardex')}
-            style={{ 
-              padding: '12px 20px', 
+            style={{
+              padding: '12px 20px',
               border: 'none',
               background: 'transparent',
               color: activeTab === 'kardex' ? '#10b981' : 'var(--muted)',
@@ -831,10 +984,10 @@ export default function InventoryMovements() {
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16, alignItems: 'center' }}>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-              <input 
-                placeholder="Buscar por codigo, SKU, nombre o detalle..." 
-                value={productQuery} 
-                onChange={e => setProductQuery(e.target.value)} 
+              <input
+                placeholder="Buscar por codigo, SKU, nombre o detalle..."
+                value={productQuery}
+                onChange={e => setProductQuery(e.target.value)}
                 style={{ width: 400, maxWidth: '100%', padding: 8, borderRadius: 6, border: '1px solid var(--border)' }}
               />
               <MobileBarcodeScannerButton
@@ -870,9 +1023,9 @@ export default function InventoryMovements() {
                   {filteredProducts.map(p => (
                     <div key={p.id} style={{ background: 'var(--modal)', border: '1px solid var(--border)', borderRadius: 12, padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
                       <div style={{ display: 'flex', gap: 10 }}>
-                        <img 
-                          src={p.imageUrl || 'https://via.placeholder.com/64x64?text=IMG'} 
-                          alt={p.name} 
+                        <img
+                          src={p.imageUrl || 'https://via.placeholder.com/64x64?text=IMG'}
+                          alt={p.name}
                           style={{ width: 64, height: 64, borderRadius: 8, objectFit: 'cover' }}
                         />
                         <div style={{ flex: 1, overflow: 'hidden' }}>
@@ -883,12 +1036,12 @@ export default function InventoryMovements() {
                             DETALLE: {p.description || '-'}
                           </div>
                           <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-                            {p.categoryId ? categoryMap[p.categoryId] : ''} 
+                            {p.categoryId ? categoryMap[p.categoryId] : ''}
                             {p.brandId ? ` • ${brandMap[p.brandId]}` : ''}
                           </div>
                         </div>
                       </div>
-                      
+
                       <div style={{ background: 'var(--surface)', padding: '8px 10px', borderRadius: 8 }}>
                         <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600, marginBottom: 6 }}>Stock por tienda</div>
                         {renderWarehouseStockBreakdown(p.id, p.stock)}
@@ -896,14 +1049,14 @@ export default function InventoryMovements() {
 
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div style={{ fontSize: 13, fontWeight: 500 }}>{formatMoney(p.price, currency)}</div>
-                        <button 
+                        <button
                           onClick={() => openAdjustModal(p)}
-                          style={{ 
-                            padding: '6px 12px', 
-                            borderRadius: 6, 
-                            background: '#e65100', 
-                            color: 'white', 
-                            border: 'none', 
+                          style={{
+                            padding: '6px 12px',
+                            borderRadius: 6,
+                            background: '#e65100',
+                            color: 'white',
+                            border: 'none',
                             fontSize: 12,
                             cursor: 'pointer',
                             fontWeight: 500
@@ -955,14 +1108,14 @@ export default function InventoryMovements() {
                             {renderWarehouseStockBreakdown(p.id, p.stock, true)}
                           </td>
                           <td style={{ padding: 10, textAlign: 'right' }}>
-                            <button 
+                            <button
                               onClick={() => openAdjustModal(p)}
-                              style={{ 
-                                padding: '6px 12px', 
-                                borderRadius: 6, 
-                                background: '#e65100', 
-                                color: 'white', 
-                                border: 'none', 
+                              style={{
+                                padding: '6px 12px',
+                                borderRadius: 6,
+                                background: '#e65100',
+                                color: 'white',
+                                border: 'none',
                                 fontSize: 12,
                                 cursor: 'pointer'
                               }}
@@ -985,8 +1138,8 @@ export default function InventoryMovements() {
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
             <div style={{ display: 'flex', gap: 10 }}>
-              <select 
-                value={filters.type} 
+              <select
+                value={filters.type}
                 onChange={e => setFilters({...filters, type: e.target.value})}
                 style={{ padding: 8, borderRadius: 4, border: '1px solid var(--border)' }}
               >
@@ -1037,20 +1190,20 @@ export default function InventoryMovements() {
                       {new Date(m.date).toLocaleString()}
                     </td>
                     <td style={{ padding: 12 }}>
-                      <span style={{ 
-                        padding: '4px 8px', 
-                        borderRadius: 4, 
-                        fontSize: 12, 
+                      <span style={{
+                        padding: '4px 8px',
+                        borderRadius: 4,
+                        fontSize: 12,
                         fontWeight: 600,
-                        background: 
-                          m.type === 'SALE' ? '#ffebee' : 
-                          m.type === 'PURCHASE' ? '#e8f5e9' : 
-                          m.type === 'INITIAL' ? '#e3f2fd' : 
+                        background:
+                          m.type === 'SALE' ? '#ffebee' :
+                          m.type === 'PURCHASE' ? '#e8f5e9' :
+                          m.type === 'INITIAL' ? '#e3f2fd' :
                           '#f5f5f5',
-                        color: 
-                          m.type === 'SALE' ? '#c62828' : 
-                          m.type === 'PURCHASE' ? '#2e7d32' : 
-                          m.type === 'INITIAL' ? '#1565c0' : 
+                        color:
+                          m.type === 'SALE' ? '#c62828' :
+                          m.type === 'PURCHASE' ? '#2e7d32' :
+                          m.type === 'INITIAL' ? '#1565c0' :
                           '#616161'
                       }}>
                         {getTypeName(m.type)}
@@ -1107,7 +1260,7 @@ export default function InventoryMovements() {
                   style={{ width: '100%', padding: '10px', borderRadius: 6, border: '1px solid var(--border)' }}
                 />
                 {kardexSelectedProduct && (
-                  <button 
+                  <button
                     onClick={() => { setKardexSelectedProduct(null); setKardexProductSearch(''); }}
                     style={{ position: 'absolute', right: 10, top: 32, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}
                   >✕</button>
@@ -1118,7 +1271,7 @@ export default function InventoryMovements() {
                       .filter(p => p.name.toLowerCase().includes(kardexProductSearch.toLowerCase()) || p.sku.toLowerCase().includes(kardexProductSearch.toLowerCase()))
                       .slice(0, 10)
                       .map(p => (
-                        <div 
+                        <div
                           key={p.id}
                           onClick={() => { setKardexSelectedProduct(p); setKardexProductSearch(''); }}
                           style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid var(--border)' }}
@@ -1151,8 +1304,8 @@ export default function InventoryMovements() {
               {/* Date Range */}
               <div>
                 <label style={{ display: 'block', fontSize: 12, marginBottom: 6, fontWeight: 500 }}>Desde</label>
-                <input 
-                  type="date" 
+                <input
+                  type="date"
                   value={kardexFilters.startDate}
                   onChange={e => setKardexFilters({...kardexFilters, startDate: e.target.value})}
                   style={{ width: '100%', padding: '10px', borderRadius: 6, border: '1px solid var(--border)' }}
@@ -1160,8 +1313,8 @@ export default function InventoryMovements() {
               </div>
               <div>
                 <label style={{ display: 'block', fontSize: 12, marginBottom: 6, fontWeight: 500 }}>Hasta</label>
-                <input 
-                  type="date" 
+                <input
+                  type="date"
                   value={kardexFilters.endDate}
                   onChange={e => setKardexFilters({...kardexFilters, endDate: e.target.value})}
                   style={{ width: '100%', padding: '10px', borderRadius: 6, border: '1px solid var(--border)' }}
@@ -1197,7 +1350,7 @@ export default function InventoryMovements() {
                   <tr key={m.id} style={{ borderTop: '1px solid var(--border)' }}>
                     <td style={{ padding: 12, fontSize: 13 }}>{new Date(m.date).toLocaleString()}</td>
                     <td style={{ padding: 12 }}>
-                      <span style={{ 
+                      <span style={{
                         padding: '4px 8px', borderRadius: 4, fontSize: 11, fontWeight: 600,
                         background: m.type.includes('IN') || m.type === 'PURCHASE' || m.type === 'INITIAL' || m.type === 'SALE_CANCEL' ? '#e8f5e9' : '#ffebee',
                         color: m.type.includes('IN') || m.type === 'PURCHASE' || m.type === 'INITIAL' || m.type === 'SALE_CANCEL' ? '#2e7d32' : '#c62828'
@@ -1239,18 +1392,18 @@ export default function InventoryMovements() {
           </div>
         </div>
       )}
-      
+
       {showAdjust && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
           <div style={{ background: 'var(--modal)', width: 400, padding: 20, borderRadius: 12, border: '1px solid var(--border)' }}>
             <h3 style={{ margin: 0, marginBottom: 16 }}>Nuevo Ajuste de Inventario</h3>
-            
+
             <div style={{ display: 'grid', gap: 12 }}>
               {selectedProduct ? (
                 <div style={{ background: 'var(--surface)', padding: 10, borderRadius: 8, display: 'flex', gap: 10 }}>
-                   <img 
-                      src={selectedProduct.imageUrl || 'https://via.placeholder.com/48x48?text=IMG'} 
-                      alt="" 
+                   <img
+                      src={selectedProduct.imageUrl || 'https://via.placeholder.com/48x48?text=IMG'}
+                      alt=""
                       style={{ width: 48, height: 48, borderRadius: 6, objectFit: 'cover' }}
                     />
                     <div>
@@ -1295,7 +1448,7 @@ export default function InventoryMovements() {
 
               <div>
                 <label style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>Almacén</label>
-                <select 
+                <select
                   style={{ width: '100%', padding: 8 }}
                   value={adjustForm.warehouseId}
                   onChange={e => setAdjustForm({...adjustForm, warehouseId: e.target.value})}
@@ -1314,7 +1467,7 @@ export default function InventoryMovements() {
 
               <div>
                 <label style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>Tipo</label>
-                <select 
+                <select
                   style={{ width: '100%', padding: 8 }}
                   value={adjustForm.type}
                   onChange={e => setAdjustForm({...adjustForm, type: e.target.value})}
@@ -1326,7 +1479,7 @@ export default function InventoryMovements() {
 
               <div>
                 <label style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>Cantidad (Positiva o Negativa)</label>
-                <input 
+                <input
                   type="number"
                   style={{ width: '100%', padding: 8 }}
                   placeholder="Ej: 10 o -5"
@@ -1340,34 +1493,70 @@ export default function InventoryMovements() {
                 <>
                   {(selectedProduct.productType === 'MEDICINAL') && (
                     <div style={{ background: 'var(--surface)', padding: 10, borderRadius: 8 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                        <label style={{ fontSize: 12, fontWeight: 600 }}>Lotes</label>
-                        <button onClick={addBatch} style={{ fontSize: 11, padding: '2px 6px' }}>+ Agregar Lote</button>
-                      </div>
-                      {adjustForm.batches.map((b, idx) => (
-                        <div key={idx} style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
-                          <input 
-                            placeholder="Lote" 
-                            value={b.batchNo} 
-                            onChange={e => updateBatch(idx, 'batchNo', e.target.value)}
-                            style={{ width: '35%', padding: 6, fontSize: 12 }} 
-                          />
-                          <input 
-                            type="date" 
-                            value={b.expiryDate} 
-                            onChange={e => updateBatch(idx, 'expiryDate', e.target.value)}
-                            style={{ width: '35%', padding: 6, fontSize: 12 }} 
-                          />
-                          <input 
-                            type="number" 
-                            placeholder="Cant." 
-                            value={b.quantity} 
-                            onChange={e => updateBatch(idx, 'quantity', e.target.value)}
-                            style={{ width: '20%', padding: 6, fontSize: 12 }} 
-                          />
-                          <button onClick={() => removeBatch(idx)} style={{ color: 'red', border: 'none', background: 'none' }}>✕</button>
+                      <div style={{ display: 'grid', gap: 10 }}>
+                        {availableAdjustBatches.length > 0 && (
+                          <div>
+                            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Lotes existentes</div>
+                            <div style={{ display: 'grid', gap: 6 }}>
+                              {availableAdjustBatches.map((batch, idx) => (
+                                <div key={`${batch.batchNo}-${batch.expiryDate}-${idx}`} style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 0.9fr', gap: 8, alignItems: 'center' }}>
+                                  <div style={{ fontSize: 12 }}>
+                                    <div><strong>{batch.batchNo}</strong></div>
+                                    <div style={{ opacity: 0.8 }}>Vence: {formatBatchDate(batch.expiryDate)}</div>
+                                  </div>
+                                  <div style={{ fontSize: 12, opacity: 0.85 }}>
+                                    Disponible: {batch.quantity}
+                                  </div>
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    value={getSelectedAdjustBatchQuantity(batch) || ''}
+                                    onChange={e => updateAdjustBatchSelection(batch, e.target.value)}
+                                    placeholder="Sumar"
+                                    style={{ width: '100%', padding: 6, fontSize: 12 }}
+                                  />
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        <div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                            <label style={{ fontSize: 12, fontWeight: 600 }}>Nuevos lotes</label>
+                            <button onClick={addBatch} style={{ fontSize: 11, padding: '2px 6px' }}>+ Agregar Lote</button>
+                          </div>
+                          {customPositiveBatches.length === 0 ? (
+                            <div style={{ fontSize: 12, opacity: 0.75 }}>Si necesitas crear un lote nuevo, agrégalo aquí.</div>
+                          ) : customPositiveBatches.map((b) => {
+                            const idx = adjustForm.batches.findIndex(item => item === b)
+                            return (
+                              <div key={`${b.batchNo}-${b.expiryDate}-${idx}`} style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+                                <input
+                                  placeholder="Lote"
+                                  value={b.batchNo}
+                                  onChange={e => updateBatch(idx, 'batchNo', e.target.value)}
+                                  style={{ width: '35%', padding: 6, fontSize: 12 }}
+                                />
+                                <input
+                                  type="date"
+                                  value={b.expiryDate}
+                                  onChange={e => updateBatch(idx, 'expiryDate', e.target.value)}
+                                  style={{ width: '35%', padding: 6, fontSize: 12 }}
+                                />
+                                <input
+                                  type="number"
+                                  placeholder="Cant."
+                                  value={b.quantity}
+                                  onChange={e => updateBatch(idx, 'quantity', e.target.value)}
+                                  style={{ width: '20%', padding: 6, fontSize: 12 }}
+                                />
+                                <button onClick={() => removeBatch(idx)} style={{ color: 'red', border: 'none', background: 'none' }}>✕</button>
+                              </div>
+                            )
+                          })}
                         </div>
-                      ))}
+                      </div>
                     </div>
                   )}
 
@@ -1375,7 +1564,7 @@ export default function InventoryMovements() {
                     <div style={{ background: 'var(--surface)', padding: 10, borderRadius: 8 }}>
                       <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Códigos IMEI ({adjustForm.imeis.length})</label>
                       {adjustForm.imeis.map((imei, idx) => (
-                        <input 
+                        <input
                           key={idx}
                           placeholder={`IMEI #${idx + 1}`}
                           value={imei}
@@ -1390,7 +1579,7 @@ export default function InventoryMovements() {
                     <div style={{ background: 'var(--surface)', padding: 10, borderRadius: 8 }}>
                       <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Números de Serie ({adjustForm.serials.length})</label>
                       {adjustForm.serials.map((serial, idx) => (
-                        <input 
+                        <input
                           key={idx}
                           placeholder={`Serie #${idx + 1}`}
                           value={serial}
@@ -1453,9 +1642,43 @@ export default function InventoryMovements() {
                 </div>
               )}
 
+              {selectedProduct && Number(adjustForm.quantity) < 0 && selectedProduct.productType === 'MEDICINAL' && (
+                <div style={{ background: 'var(--surface)', padding: 10, borderRadius: 8 }}>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 6 }}>
+                    Lotes a descontar
+                  </label>
+                  {availableAdjustBatches.length === 0 ? (
+                    <div style={{ fontSize: 12, opacity: 0.8 }}>No hay lotes disponibles en el almacén seleccionado</div>
+                  ) : (
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      {availableAdjustBatches.map((batch, idx) => (
+                        <div key={`${batch.batchNo}-${batch.expiryDate}-${idx}`} style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 0.9fr', gap: 8, alignItems: 'center' }}>
+                          <div style={{ fontSize: 12 }}>
+                            <div><strong>{batch.batchNo}</strong></div>
+                            <div style={{ opacity: 0.8 }}>Vence: {formatBatchDate(batch.expiryDate)}</div>
+                          </div>
+                          <div style={{ fontSize: 12, opacity: 0.85 }}>
+                            Disponible: {batch.quantity}
+                          </div>
+                          <input
+                            type="number"
+                            min={0}
+                            max={batch.quantity}
+                            value={getSelectedAdjustBatchQuantity(batch) || ''}
+                            onChange={e => updateAdjustBatchSelection(batch, e.target.value)}
+                            placeholder="Cant."
+                            style={{ width: '100%', padding: 6, fontSize: 12 }}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div>
                 <label style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>Notas</label>
-                <textarea 
+                <textarea
                   rows={2}
                   style={{ width: '100%', padding: 8 }}
                   value={adjustForm.notes}

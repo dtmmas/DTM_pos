@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { getMySalesReport, getSaleDetails } from '../api'
 import { useConfigStore } from '../store/config'
-import { formatDate, formatDateTime } from '../utils/date'
+import { formatBatchDate, formatDate, formatDateTime } from '../utils/date'
+import { formatCompanyName } from '../utils/text'
+import jsPDF from 'jspdf'
 
 interface Sale {
   id: number
@@ -27,6 +29,10 @@ interface SaleItem {
   quantity: number
   unit_price: number
   total: number
+  batch_no?: string | null
+  expiry_date?: string | null
+  imei?: string | null
+  serial?: string | null
 }
 
 interface SaleDetail extends Sale {
@@ -96,6 +102,16 @@ function getPaymentMethodLabel(method?: string, isCredit?: number) {
   return method || 'N/D'
 }
 
+function getSaleItemTraceLines(item: SaleItem) {
+  const lines: string[] = []
+  if (item.batch_no) {
+    lines.push(`Lote: ${item.batch_no} (Vence: ${formatBatchDate(item.expiry_date)})`)
+  }
+  if (item.imei) lines.push(`IMEI: ${item.imei}`)
+  if (item.serial) lines.push(`Serial: ${item.serial}`)
+  return lines
+}
+
 export default function MySalesReport() {
   const today = new Date()
   const todayString = formatInputDate(today)
@@ -125,6 +141,7 @@ export default function MySalesReport() {
   const iframeRef = useRef<HTMLIFrameElement>(null)
 
   const config = useConfigStore(s => s.config)
+  const companyName = formatCompanyName(config?.name)
 
   useEffect(() => {
     loadSales()
@@ -222,6 +239,79 @@ export default function MySalesReport() {
   const totalPages = Math.ceil(pagination.total / pagination.limit)
   const currentPage = Math.floor(pagination.offset / pagination.limit) + 1
   const formatMoney = (value?: number) => `${config?.currency ?? '$'} ${Number(value || 0).toFixed(2)}`
+
+  function downloadTicketPdf(blobUrl: string, saleId: number) {
+    const link = document.createElement('a')
+    link.href = blobUrl
+    link.download = `ticket-venta-${saleId}.pdf`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.setTimeout(() => URL.revokeObjectURL(blobUrl), 1000)
+  }
+
+  function generateTicket(sale: SaleDetail) {
+    const headerHeight = 40
+    const footerHeight = 40
+    const totalHeight = headerHeight + sale.items.reduce((sum, item) => {
+      return sum + 5 + (getSaleItemTraceLines(item).length * 4)
+    }, 0) + footerHeight
+
+    const doc = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: [80, Math.max(200, totalHeight)]
+    })
+
+    doc.setFontSize(10)
+    doc.text(companyName, 40, 5, { align: 'center' })
+    doc.setFontSize(8)
+    doc.text(`Fecha: ${formatDateTime(sale.created_at)}`, 5, 15)
+    doc.text(`Venta #${sale.id}`, 5, 20)
+
+    if (sale.customer_name) {
+      doc.text(`Cliente: ${sale.customer_name}`, 5, 25)
+    }
+
+    doc.line(5, 30, 75, 30)
+
+    let y = 35
+    sale.items.forEach(item => {
+      const lineTotal = item.unit_price * item.quantity
+      doc.text(`${item.product_name.substring(0, 20)}`, 5, y)
+      doc.text(`${item.quantity} x ${Number(item.unit_price).toFixed(2)}`, 50, y, { align: 'right' })
+      doc.text(`${Number(lineTotal).toFixed(2)}`, 75, y, { align: 'right' })
+      y += 5
+      getSaleItemTraceLines(item).forEach(line => {
+        doc.text(line.substring(0, 45), 7, y)
+        y += 4
+      })
+    })
+
+    doc.line(5, y, 75, y)
+    y += 5
+    doc.setFontSize(10)
+    doc.text(`TOTAL: ${config?.currency} ${Number(sale.total).toFixed(2)}`, 75, y, { align: 'right' })
+
+    y += 5
+    doc.setFontSize(8)
+
+    if (sale.payment_method === 'CASH') {
+      doc.text(`Efectivo: ${Number(sale.received_amount || 0).toFixed(2)}`, 5, y)
+      y += 4
+      doc.text(`Cambio: ${Number(sale.change_amount || 0).toFixed(2)}`, 5, y)
+    } else if (sale.payment_method === 'CARD') {
+      doc.text(`Tarjeta Ref: ${sale.reference_number || ''}`, 5, y)
+    } else if (sale.payment_method === 'DEPOSIT') {
+      doc.text(`Depósito Ref: ${sale.reference_number || ''}`, 5, y)
+    } else if (sale.payment_method === 'CREDIT' || sale.is_credit) {
+      doc.text('Venta a Crédito', 5, y)
+    }
+
+    const blob = doc.output('blob')
+    const blobUrl = URL.createObjectURL(blob)
+    downloadTicketPdf(blobUrl, sale.id)
+  }
 
   return (
     <div className="page-shell">
@@ -355,7 +445,14 @@ export default function MySalesReport() {
                     <tbody>
                       {selectedSale.items.map(item => (
                         <tr key={item.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                          <td style={{ padding: '10px 16px' }}>{item.product_name}</td>
+                          <td style={{ padding: '10px 16px' }}>
+                            <div>{item.product_name}</div>
+                            {getSaleItemTraceLines(item).map(line => (
+                              <div key={`${item.id}-${line}`} style={{ marginTop: 4, fontSize: 12, color: 'var(--muted)' }}>
+                                {line}
+                              </div>
+                            ))}
+                          </td>
                           <td style={{ padding: '10px 16px', textAlign: 'right' }}>{item.quantity}</td>
                           <td style={{ padding: '10px 16px', textAlign: 'right' }}>{Number(item.unit_price).toFixed(2)}</td>
                           <td style={{ padding: '10px 16px', textAlign: 'right' }}>{Number(item.total).toFixed(2)}</td>
@@ -363,6 +460,10 @@ export default function MySalesReport() {
                       ))}
                     </tbody>
                   </table>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, flexWrap: 'wrap' }}>
+                  <button onClick={() => setIsModalOpen(false)} className="secondary-btn">Cerrar</button>
+                  <button onClick={() => generateTicket(selectedSale)} className="primary-btn">Reimprimir Ticket</button>
                 </div>
               </div>
             )}

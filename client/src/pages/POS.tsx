@@ -4,7 +4,7 @@ import { useConfigStore } from '../store/config'
 import { useAuthStore } from '../store/auth'
 import { useNavigate } from 'react-router-dom'
 import jsPDF from 'jspdf'
-import { formatDateTime } from '../utils/date'
+import { formatBatchDate, formatDateTime } from '../utils/date'
 import { formatCompanyName } from '../utils/text'
 import MobileBarcodeScannerButton from '../components/MobileBarcodeScannerButton'
 
@@ -32,6 +32,13 @@ interface CartItem extends Product {
   maxQuantity?: number
   imei?: string
   serial?: string
+}
+
+interface BatchEditTarget {
+  productId: number
+  batchNo: string
+  expiryDate?: string
+  quantity: number
 }
 
 interface Category {
@@ -101,6 +108,7 @@ export default function POS() {
   const [selectedProductForBatch, setSelectedProductForBatch] = useState<Product | null>(null)
   const [availableBatches, setAvailableBatches] = useState<{batchNo: string, expiryDate: string, quantity: number}[]>([])
   const [loadingBatches, setLoadingBatches] = useState(false)
+  const [batchEditTarget, setBatchEditTarget] = useState<BatchEditTarget | null>(null)
 
   // IMEI/Serial Selection State
   const [selectedProductForImei, setSelectedProductForImei] = useState<Product | null>(null)
@@ -227,6 +235,70 @@ export default function POS() {
     }
   }
 
+  const getReservedBatchQuantity = (productId: number, batchNo: string, expiryDate?: string) => {
+    return cart
+      .filter(item =>
+        item.id === productId &&
+        item.batchNo === batchNo &&
+        (item.expiryDate || '') === (expiryDate || '')
+      )
+      .reduce((sum, item) => sum + Number(item.quantity || 0), 0)
+  }
+
+  const closeBatchSelector = () => {
+    setSelectedProductForBatch(null)
+    setBatchEditTarget(null)
+    setAvailableBatches([])
+    setModalSearchTerm('')
+  }
+
+  const getTraceDescription = (item: Pick<CartItem, 'batchNo' | 'expiryDate' | 'imei' | 'serial'>) => {
+    if (item.batchNo) return `Lote: ${item.batchNo} (Vence: ${formatBatchDate(item.expiryDate)})`
+    if (item.imei) return `IMEI: ${item.imei}`
+    if (item.serial) return `Serial: ${item.serial}`
+    return ''
+  }
+
+  const openBatchSelector = async (product: Product, target?: BatchEditTarget) => {
+    setLoadingBatches(true)
+    try {
+      const wId = user?.warehouseId ? Number(user.warehouseId) : null
+      if (!wId && !isAdmin) {
+        alert('Tu usuario no tiene una tienda asignada')
+        return
+      }
+
+      const res = await api.get(`/products/${product.id}`, wId ? { params: { warehouseId: wId } } : undefined)
+      if (res.data.batches && res.data.batches.length > 0) {
+        const validBatches = res.data.batches
+          .filter((b: any) => b.quantity > 0)
+          .sort((a: any, b: any) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())
+
+        if (validBatches.length > 0) {
+          setAvailableBatches(validBatches)
+          setSelectedProductForBatch(product)
+          setBatchEditTarget(target || null)
+          setModalSearchTerm('')
+          return
+        }
+
+        if (product.otherStock && product.otherStock > 0) {
+          alert(`No hay lotes en este almacén. Disponibles ${product.otherStock} en otros almacenes.`)
+        } else {
+          alert('No hay lotes con stock disponible para este producto')
+        }
+        return
+      }
+
+      alert('No hay lotes registrados para este producto')
+    } catch (err) {
+      console.error(err)
+      alert('Error al cargar lotes')
+    } finally {
+      setLoadingBatches(false)
+    }
+  }
+
   const handleViewStock = async (e: React.MouseEvent, product: Product) => {
     e.stopPropagation()
     setViewStockProduct(product)
@@ -248,44 +320,43 @@ export default function POS() {
       return
     }
 
-        if (product.productType === 'MEDICINAL') {
-            setLoadingBatches(true)
-            try {
-                const wId = user?.warehouseId ? Number(user.warehouseId) : null
-                if (!wId && !isAdmin) {
-                    alert('Tu usuario no tiene una tienda asignada')
-                    return
-                }
-                const res = await api.get(`/products/${product.id}`, wId ? { params: { warehouseId: wId } } : undefined)
-                if (res.data.batches && res.data.batches.length > 0) {
-                    // Filter batches with positive quantity and sort by expiry date (ASC)
-                    const validBatches = res.data.batches
-                        .filter((b: any) => b.quantity > 0)
-                        .sort((a: any, b: any) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())
-
-                    if (validBatches.length > 0) {
-                        setAvailableBatches(validBatches)
-                        setSelectedProductForBatch(product)
-                        setModalSearchTerm('')
-                    } else {
-                        // Check if stock exists but in other warehouse
-                        if (product.otherStock && product.otherStock > 0) {
-                             alert(`No hay lotes en este almacén. Disponibles ${product.otherStock} en otros almacenes.`)
-                        } else {
-                             alert('No hay lotes con stock disponible para este producto')
-                        }
-                    }
-                } else {
-                    alert('No hay lotes registrados para este producto')
-                }
-            } catch (err) {
-                console.error(err)
-                alert('Error al cargar lotes')
-            } finally {
-                setLoadingBatches(false)
+    if (product.productType === 'MEDICINAL') {
+        setLoadingBatches(true)
+        try {
+            const wId = user?.warehouseId ? Number(user.warehouseId) : null
+            if (!wId && !isAdmin) {
+                alert('Tu usuario no tiene una tienda asignada')
+                return
             }
-            return
+            const res = await api.get(`/products/${product.id}`, wId ? { params: { warehouseId: wId } } : undefined)
+            if (res.data.batches && res.data.batches.length > 0) {
+                const validBatches = res.data.batches
+                    .filter((b: any) => b.quantity > 0)
+                    .sort((a: any, b: any) => new Date(a.expiryDate).getTime() - new Date(b.expiryDate).getTime())
+
+                const nextBatch = validBatches.find((batch: any) => {
+                  const reservedQty = getReservedBatchQuantity(product.id, batch.batchNo, batch.expiryDate)
+                  return reservedQty < Number(batch.quantity || 0)
+                })
+
+                if (nextBatch) {
+                    addBatchToCart(product, nextBatch, 1)
+                } else if (product.otherStock && product.otherStock > 0) {
+                    alert(`No hay lotes disponibles en este almacén para venta inmediata. Disponibles ${product.otherStock} en otros almacenes.`)
+                } else {
+                    alert('Todos los lotes disponibles de este producto ya están reservados en el carrito')
+                }
+            } else {
+                alert('No hay lotes registrados para este producto')
+            }
+        } catch (err) {
+            console.error(err)
+            alert('Error al cargar lotes')
+        } finally {
+            setLoadingBatches(false)
         }
+        return
+    }
 
     if (product.productType === 'IMEI') {
         try {
@@ -401,7 +472,7 @@ export default function POS() {
 
   const addBatchToCart = (product: Product, batch: {batchNo: string, expiryDate: string, quantity: number}, qty: number) => {
       setCart(prev => {
-          const existing = prev.find(item => item.id === product.id && item.batchNo === batch.batchNo)
+          const existing = prev.find(item => item.id === product.id && item.batchNo === batch.batchNo && (item.expiryDate || '') === (batch.expiryDate || ''))
           if (existing) {
               const newQty = existing.quantity + qty
               if (newQty > batch.quantity) {
@@ -409,7 +480,7 @@ export default function POS() {
                   return prev
               }
               return prev.map(item =>
-                  (item.id === product.id && item.batchNo === batch.batchNo)
+                  (item.id === product.id && item.batchNo === batch.batchNo && (item.expiryDate || '') === (batch.expiryDate || ''))
                   ? { ...item, quantity: newQty }
                   : item
               )
@@ -423,7 +494,79 @@ export default function POS() {
               maxQuantity: batch.quantity
           }]
       })
-      setSelectedProductForBatch(null)
+      closeBatchSelector()
+  }
+
+  const replaceBatchInCart = (target: BatchEditTarget, batch: {batchNo: string, expiryDate: string, quantity: number}) => {
+    let shouldCloseSelector = false
+    setCart(prev => {
+      const reservedByOthers = prev
+        .filter(item =>
+          item.id === target.productId &&
+          item.batchNo === batch.batchNo &&
+          (item.expiryDate || '') === (batch.expiryDate || '') &&
+          !(
+            item.id === target.productId &&
+            item.batchNo === target.batchNo &&
+            (item.expiryDate || '') === (target.expiryDate || '')
+          )
+        )
+        .reduce((sum, item) => sum + Number(item.quantity || 0), 0)
+
+      const availableForTarget = Number(batch.quantity || 0) - reservedByOthers
+      if (target.quantity > availableForTarget) {
+        alert(`Stock insuficiente en el lote seleccionado. Solo quedan ${Math.max(availableForTarget, 0)} disponibles para reemplazar.`)
+        return prev
+      }
+
+      let replacementFailed = false
+      const nextCart = prev.reduce<CartItem[]>((acc, item) => {
+        const isTarget =
+          item.id === target.productId &&
+          item.batchNo === target.batchNo &&
+          (item.expiryDate || '') === (target.expiryDate || '')
+
+        if (!isTarget) {
+          acc.push(item)
+          return acc
+        }
+
+        const existingIndex = acc.findIndex(existing =>
+          existing.id === target.productId &&
+          existing.batchNo === batch.batchNo &&
+          (existing.expiryDate || '') === (batch.expiryDate || '')
+        )
+
+        if (existingIndex >= 0) {
+          const mergedQty = Number(acc[existingIndex].quantity || 0) + Number(item.quantity || 0)
+          if (mergedQty > Number(batch.quantity || 0)) {
+            alert(`Stock insuficiente en el lote seleccionado. Solo hay ${batch.quantity} disponibles.`)
+            replacementFailed = true
+            return acc
+          }
+          acc[existingIndex] = { ...acc[existingIndex], quantity: mergedQty, maxQuantity: batch.quantity }
+          return acc
+        }
+
+        acc.push({
+          ...item,
+          batchNo: batch.batchNo,
+          expiryDate: batch.expiryDate,
+          maxQuantity: batch.quantity
+        })
+        return acc
+      }, [])
+
+      if (replacementFailed) {
+        return prev
+      }
+
+      shouldCloseSelector = true
+      return nextCart
+    })
+    if (shouldCloseSelector) {
+      closeBatchSelector()
+    }
   }
 
   const addImeiToCart = (product: Product, imei: string) => {
@@ -459,10 +602,11 @@ export default function POS() {
       setSelectedProductForSerial(null)
   }
 
-  const updatePrice = (productId: number, newPrice: number, batchNo?: string, imei?: string, serial?: string) => {
+  const updatePrice = (productId: number, newPrice: number, batchNo?: string, imei?: string, serial?: string, expiryDate?: string) => {
     setCart(prev => prev.map(item => {
       const isTarget = item.id === productId &&
                        item.batchNo === batchNo &&
+                       (item.expiryDate || '') === (expiryDate || '') &&
                        item.imei === imei &&
                        item.serial === serial
 
@@ -473,10 +617,11 @@ export default function POS() {
     }))
   }
 
-  const updateQuantity = (productId: number, delta: number, batchNo?: string, imei?: string, serial?: string) => {
+  const updateQuantity = (productId: number, delta: number, batchNo?: string, imei?: string, serial?: string, expiryDate?: string) => {
     setCart(prev => prev.map(item => {
       const isTarget = item.id === productId &&
                        item.batchNo === batchNo &&
+                       (item.expiryDate || '') === (expiryDate || '') &&
                        item.imei === imei &&
                        item.serial === serial
 
@@ -495,13 +640,14 @@ export default function POS() {
     }))
   }
 
-  const handleQuantityChange = (productId: number, value: string, batchNo?: string, imei?: string, serial?: string) => {
+  const handleQuantityChange = (productId: number, value: string, batchNo?: string, imei?: string, serial?: string, expiryDate?: string) => {
     const newQty = parseInt(value)
     if (isNaN(newQty)) return
 
     setCart(prev => prev.map(item => {
       const isTarget = item.id === productId &&
                        item.batchNo === batchNo &&
+                       (item.expiryDate || '') === (expiryDate || '') &&
                        item.imei === imei &&
                        item.serial === serial
 
@@ -519,10 +665,11 @@ export default function POS() {
     }))
   }
 
-  const removeFromCart = (productId: number, batchNo?: string, imei?: string, serial?: string) => {
+  const removeFromCart = (productId: number, batchNo?: string, imei?: string, serial?: string, expiryDate?: string) => {
     setCart(prev => prev.filter(item => !(
         item.id === productId &&
         item.batchNo === batchNo &&
+        (item.expiryDate || '') === (expiryDate || '') &&
         item.imei === imei &&
         item.serial === serial
     )))
@@ -617,7 +764,10 @@ export default function POS() {
         const lineTotal = item.price * item.quantity
         return `
           <div class="row item">
-            <div class="name">${escapeHtml(item.name)}</div>
+            <div class="name">
+              <div>${escapeHtml(item.name)}</div>
+              ${getTraceDescription(item) ? `<div class="trace">${escapeHtml(getTraceDescription(item))}</div>` : ''}
+            </div>
             <div class="qty">${escapeHtml(item.quantity)} x ${escapeHtml(item.price.toFixed(2))}</div>
             <div class="line-total">${escapeHtml(lineTotal.toFixed(2))}</div>
           </div>
@@ -645,6 +795,7 @@ export default function POS() {
       .row { display: flex; gap: 2mm; align-items: flex-start; }
       .item { margin-bottom: 2mm; }
       .name { flex: 1; word-break: break-word; }
+      .trace { margin-top: 1mm; font-size: 10px; }
       .qty, .line-total { white-space: nowrap; }
       .line-total { margin-left: auto; }
       .total { font-weight: 700; font-size: 12px; text-align: right; }
@@ -924,6 +1075,7 @@ export default function POS() {
           price: item.price,
           batchNo: item.batchNo,
           expiryDate: item.expiryDate,
+          batches: item.batchNo ? [{ batchNo: item.batchNo, expiryDate: item.expiryDate, quantity: item.quantity }] : [],
           imei: item.imei,
           serial: item.serial
         })),
@@ -1288,6 +1440,19 @@ export default function POS() {
 
                 </div>
                 <div style={{ color: 'var(--accent)', fontWeight: 700, fontSize: '1.1rem', marginTop: 8 }}>{config?.currency} {p.price.toFixed(2)}</div>
+                {p.productType === 'MEDICINAL' && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      openBatchSelector(p)
+                    }}
+                    className="btn-secondary"
+                    style={{ marginTop: 8, width: '100%' }}
+                  >
+                    Elegir lote
+                  </button>
+                )}
               </div>
             </div>
           ))}
@@ -1425,7 +1590,7 @@ export default function POS() {
             </div>
           ) : (
             cart.map(item => (
-              <div key={`${item.id}-${item.batchNo || ''}-${item.imei || ''}-${item.serial || ''}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, borderBottom: '1px solid var(--border)', paddingBottom: 8 }}>
+              <div key={`${item.id}-${item.batchNo || ''}-${item.expiryDate || ''}-${item.imei || ''}-${item.serial || ''}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, borderBottom: '1px solid var(--border)', paddingBottom: 8 }}>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 500, color: 'var(--text)' }}>{item.name}</div>
                   <div style={{ fontSize: '0.85rem', color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -1433,7 +1598,7 @@ export default function POS() {
                     {(item.price2 || item.price3) ? (
                         <select
                             value={item.price}
-                            onChange={(e) => updatePrice(item.id, Number(e.target.value), item.batchNo, item.imei, item.serial)}
+                            onChange={(e) => updatePrice(item.id, Number(e.target.value), item.batchNo, item.imei, item.serial, item.expiryDate)}
                             style={{
                                 background: 'transparent',
                                 border: '1px solid var(--border)',
@@ -1455,8 +1620,28 @@ export default function POS() {
                   </div>
                   {item.batchNo && (
                      <div style={{ fontSize: '0.75rem', color: '#3b82f6', marginTop: 2 }}>
-                        Lote: {item.batchNo} (Vence: {item.expiryDate})
+                        Lote: {item.batchNo} (Vence: {formatBatchDate(item.expiryDate)})
                      </div>
+                  )}
+                  {item.batchNo && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const product = products.find(product => product.id === item.id)
+                        if (product) {
+                          openBatchSelector(product, {
+                            productId: item.id,
+                            batchNo: item.batchNo,
+                            expiryDate: item.expiryDate,
+                            quantity: item.quantity
+                          })
+                        }
+                      }}
+                      className="btn-secondary"
+                      style={{ marginTop: 6, padding: '4px 8px', fontSize: '0.75rem' }}
+                    >
+                      Cambiar lote
+                    </button>
                   )}
                   {item.imei && (
                      <div style={{ fontSize: '0.75rem', color: '#8b5cf6', marginTop: 2 }}>
@@ -1471,7 +1656,7 @@ export default function POS() {
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <button
-                    onClick={() => updateQuantity(item.id, -1, item.batchNo, item.imei, item.serial)}
+                    onClick={() => updateQuantity(item.id, -1, item.batchNo, item.imei, item.serial, item.expiryDate)}
                     style={{
                       width: 28,
                       height: 28,
@@ -1494,7 +1679,7 @@ export default function POS() {
                     min="1"
                     max={item.maxQuantity || item.stock}
                     value={item.quantity}
-                    onChange={(e) => handleQuantityChange(item.id, e.target.value, item.batchNo, item.imei, item.serial)}
+                    onChange={(e) => handleQuantityChange(item.id, e.target.value, item.batchNo, item.imei, item.serial, item.expiryDate)}
                     style={{
                       width: 40,
                       height: 28,
@@ -1509,7 +1694,7 @@ export default function POS() {
                     }}
                   />
                   <button
-                    onClick={() => updateQuantity(item.id, 1, item.batchNo, item.imei, item.serial)}
+                    onClick={() => updateQuantity(item.id, 1, item.batchNo, item.imei, item.serial, item.expiryDate)}
                     style={{
                       width: 28,
                       height: 28,
@@ -1528,7 +1713,7 @@ export default function POS() {
                     </svg>
                   </button>
                   <button
-                    onClick={() => removeFromCart(item.id, item.batchNo, item.imei, item.serial)}
+                    onClick={() => removeFromCart(item.id, item.batchNo, item.imei, item.serial, item.expiryDate)}
                     className="icon-btn danger"
                     style={{
                       marginLeft: 8,
@@ -1929,17 +2114,21 @@ export default function POS() {
                                            </span>
                                        )}
                                    </td>
-                                   <td style={{ padding: 8 }}>{b.expiryDate}</td>
+                                   <td style={{ padding: 8 }}>{formatBatchDate(b.expiryDate)}</td>
                                    <td style={{ padding: 8, textAlign: 'right' }}>{b.quantity}</td>
                                    <td style={{ padding: 8, textAlign: 'right' }}>
                                        <button
                                            className="btn-primary"
                                            onClick={() => {
-                                               addBatchToCart(selectedProductForBatch, b, 1)
+                                               if (batchEditTarget) {
+                                                 replaceBatchInCart(batchEditTarget, b)
+                                               } else {
+                                                 addBatchToCart(selectedProductForBatch, b, 1)
+                                               }
                                            }}
                                            style={{ fontSize: '0.8em', padding: '4px 8px' }}
                                        >
-                                           Agregar
+                                           {batchEditTarget ? 'Reemplazar' : 'Agregar'}
                                        </button>
                                    </td>
                                </tr>
@@ -1951,7 +2140,7 @@ export default function POS() {
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                 <button
-                    onClick={() => setSelectedProductForBatch(null)}
+                    onClick={closeBatchSelector}
                     style={{ padding: '8px 16px', borderRadius: 6, border: '1px solid var(--border)', background: 'transparent', cursor: 'pointer', color: 'var(--text)' }}
                 >
                     Cancelar

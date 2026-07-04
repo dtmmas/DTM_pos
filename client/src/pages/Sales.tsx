@@ -3,7 +3,7 @@ import { Navigate } from 'react-router-dom'
 import { api, getSales, getSaleDetails, cancelSale } from '../api'
 import { useConfigStore } from '../store/config'
 import { useAuthStore } from '../store/auth'
-import { formatDate, formatDateTime } from '../utils/date'
+import { formatBatchDate, formatDate, formatDateTime } from '../utils/date'
 import jsPDF from 'jspdf'
 import { formatCompanyName } from '../utils/text'
 
@@ -34,6 +34,10 @@ interface SaleItem {
   quantity: number
   unit_price: number
   total: number
+  batch_no?: string | null
+  expiry_date?: string | null
+  imei?: string | null
+  serial?: string | null
 }
 
 interface SaleDetail extends Sale {
@@ -121,6 +125,16 @@ function getPaymentMethodLabel(method?: string, isCredit?: number) {
   if (method === 'DEPOSIT') return 'Depósito'
   if (method === 'CREDIT' || isCredit) return 'Crédito'
   return method || 'N/D'
+}
+
+function getSaleItemTraceLines(item: SaleItem) {
+  const lines: string[] = []
+  if (item.batch_no) {
+    lines.push(`Lote: ${item.batch_no} (Vence: ${formatBatchDate(item.expiry_date)})`)
+  }
+  if (item.imei) lines.push(`IMEI: ${item.imei}`)
+  if (item.serial) lines.push(`Serial: ${item.serial}`)
+  return lines
 }
 
 export default function Sales() {
@@ -326,11 +340,12 @@ export default function Sales() {
   }
 
   const generateTicket = (sale: SaleDetail) => {
-     // Calcular altura dinámica
+     // Calcular altura dinámica incluyendo trazabilidad del producto
      const headerHeight = 40
-     const itemHeight = 5
      const footerHeight = 40
-     const totalHeight = headerHeight + (sale.items.length * itemHeight) + footerHeight
+     const totalHeight = headerHeight + sale.items.reduce((sum, item) => {
+       return sum + 5 + (getSaleItemTraceLines(item).length * 4)
+     }, 0) + footerHeight
      
      const doc = new jsPDF({
        orientation: 'portrait',
@@ -357,6 +372,10 @@ export default function Sales() {
        doc.text(`${item.quantity} x ${Number(item.unit_price).toFixed(2)}`, 50, y, { align: 'right' })
        doc.text(`${Number(lineTotal).toFixed(2)}`, 75, y, { align: 'right' })
        y += 5
+       getSaleItemTraceLines(item).forEach(line => {
+         doc.text(line.substring(0, 45), 7, y)
+         y += 4
+       })
      })
  
      doc.line(5, y, 75, y)
@@ -743,7 +762,14 @@ export default function Sales() {
                     <tbody>
                       {selectedSale.items.map(item => (
                         <tr key={item.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                          <td style={{ padding: '10px 16px' }}>{item.product_name}</td>
+                          <td style={{ padding: '10px 16px' }}>
+                            <div>{item.product_name}</div>
+                            {getSaleItemTraceLines(item).map(line => (
+                              <div key={`${item.id}-${line}`} style={{ marginTop: 4, fontSize: 12, color: 'var(--muted)' }}>
+                                {line}
+                              </div>
+                            ))}
+                          </td>
                           <td style={{ padding: '10px 16px', textAlign: 'right' }}>{item.quantity}</td>
                           <td style={{ padding: '10px 16px', textAlign: 'right' }}>{Number(item.unit_price).toFixed(2)}</td>
                           <td style={{ padding: '10px 16px', textAlign: 'right' }}>{Number(item.total).toFixed(2)}</td>

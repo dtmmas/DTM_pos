@@ -5,6 +5,90 @@ import { registerMovement } from '../services/inventory.js'
 
 const router = express.Router()
 
+function formatDateOnly(value) {
+  if (!value) return null
+  if (value instanceof Date) return value.toISOString().slice(0, 10)
+  const normalized = String(value).trim()
+  if (!normalized) return null
+  if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) return normalized
+  const parsed = new Date(normalized)
+  if (Number.isNaN(parsed.getTime())) return normalized
+  return parsed.toISOString().slice(0, 10)
+}
+
+async function ensureSaleItemsTrackedColumns(conn) {
+  const trackedColumns = [
+    ['serial', 'VARCHAR(100) NULL AFTER total'],
+    ['imei', 'VARCHAR(50) NULL AFTER serial'],
+    ['batch_no', 'VARCHAR(120) NULL AFTER imei'],
+    ['expiry_date', 'DATE NULL AFTER batch_no'],
+  ]
+
+  for (const [columnName, definition] of trackedColumns) {
+    const [rows] = await conn.query(`SHOW COLUMNS FROM sale_items LIKE ?`, [columnName])
+    if (!Array.isArray(rows) || rows.length === 0) {
+      await conn.query(`ALTER TABLE sale_items ADD COLUMN ${columnName} ${definition}`)
+    }
+  }
+}
+
+function normalizeSaleBatchRows(rawBatches) {
+  const map = new Map()
+
+  for (const rawBatch of Array.isArray(rawBatches) ? rawBatches : []) {
+    const batchNo = String(rawBatch?.batchNo ?? rawBatch?.batch_no ?? '').trim()
+    const expiryDate = String(rawBatch?.expiryDate ?? rawBatch?.expiry_date ?? '').trim()
+    const quantity = Number(rawBatch?.quantity || 0)
+
+    if (!batchNo || quantity <= 0) continue
+
+    const key = `${batchNo}__${expiryDate || ''}`
+    const current = map.get(key)
+    if (current) {
+      current.quantity += quantity
+      continue
+    }
+
+    map.set(key, { batchNo, expiryDate: expiryDate || null, quantity })
+  }
+
+  return Array.from(map.values())
+}
+
+async function allocateSaleBatchesByFefo(conn, { productId, warehouseId, quantity }) {
+  let remaining = Number(quantity || 0)
+  if (remaining <= 0) return []
+
+  const [rows] = await conn.query(
+    `SELECT batch_no, expiry_date, quantity
+     FROM product_batches
+     WHERE product_id = ? AND warehouse_id = ? AND quantity > 0
+     ORDER BY expiry_date IS NULL ASC, expiry_date ASC, id ASC`,
+    [productId, warehouseId]
+  )
+
+  const allocations = []
+  for (const row of rows || []) {
+    if (remaining <= 0) break
+    const available = Number(row.quantity || 0)
+    if (available <= 0) continue
+
+    const takeQty = Math.min(available, remaining)
+    allocations.push({
+      batchNo: String(row.batch_no || '').trim(),
+      expiryDate: formatDateOnly(row.expiry_date),
+      quantity: takeQty
+    })
+    remaining -= takeQty
+  }
+
+  if (remaining > 0) {
+    throw new Error(`No hay suficiente stock por lotes para el producto ${productId} en la tienda seleccionada`)
+  }
+
+  return allocations
+}
+
 async function columnExists(db, table, column) {
   const [rows] = await db.query(`SHOW COLUMNS FROM \`${table}\` LIKE ?`, [column])
   return Array.isArray(rows) && rows.length > 0
@@ -398,6 +482,7 @@ router.post('/', authMiddleware, async (req, res) => {
     try {
       await conn.beginTransaction()
       await ensureSalesSchema(conn)
+      await ensureSaleItemsTrackedColumns(conn)
       const hasSalesUserId = await columnExists(conn, 'sales', 'user_id')
 
       const [shiftRows] = await conn.query(
@@ -438,12 +523,39 @@ router.post('/', authMiddleware, async (req, res) => {
       for (const item of items) {
         // item: { productId, quantity, price, imei, serial }
         const itemTotal = Number(item.price) * Number(item.quantity)
+        const batchRows = normalizeSaleBatchRows(item.batches)
+        const batchAllocations = batchRows.length > 0
+          ? batchRows
+          : (item.batchNo
+              ? [{ batchNo: String(item.batchNo).trim(), expiryDate: formatDateOnly(item.expiryDate), quantity: Number(item.quantity || 0) }]
+              : await allocateSaleBatchesByFefo(conn, {
+                  productId: item.productId,
+                  warehouseId: saleWarehouseId,
+                  quantity: Number(item.quantity || 0)
+                }).catch(error => {
+                  const isTrackedIndividual = Boolean(item.serial || item.imei)
+                  if (isTrackedIndividual) return []
+                  throw error
+                }))
         
-        // Insertar sale_item
-        await conn.query(
-          'INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, total, serial, imei) VALUES (?, ?, ?, ?, ?, ?, ?)',
-          [saleId, item.productId, item.quantity, item.price, itemTotal, item.serial || null, item.imei || null]
-        )
+        if (batchAllocations.length > 0) {
+          const totalBatchQty = batchAllocations.reduce((sum, batch) => sum + Number(batch.quantity || 0), 0)
+          if (totalBatchQty !== Number(item.quantity || 0)) {
+            throw new Error(`La suma de lotes del producto ${item.productId} debe coincidir con la cantidad de la venta`)
+          }
+
+          for (const batch of batchAllocations) {
+            await conn.query(
+              'INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, total, serial, imei, batch_no, expiry_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+              [saleId, item.productId, batch.quantity, item.price, Number(item.price) * Number(batch.quantity), null, null, batch.batchNo, batch.expiryDate]
+            )
+          }
+        } else {
+          await conn.query(
+            'INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, total, serial, imei, batch_no, expiry_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            [saleId, item.productId, item.quantity, item.price, itemTotal, item.serial || null, item.imei || null, null, null]
+          )
+        }
 
         if (item.serial) {
              const [serialResult] = await conn.query(
@@ -461,15 +573,18 @@ router.post('/', authMiddleware, async (req, res) => {
              if (!imeiResult.affectedRows) {
                throw new Error(`El IMEI ${item.imei} no está disponible para la venta en la tienda seleccionada`)
              }
-        } else if (item.batchNo) {
-            // Producto medicinal con lote
-             const [batchResult] = await conn.query(
-               'UPDATE product_batches SET quantity = quantity - ? WHERE product_id = ? AND batch_no = ? AND warehouse_id = ? AND quantity >= ?',
-               [item.quantity, item.productId, item.batchNo, saleWarehouseId, item.quantity]
-             )
-             if (!batchResult.affectedRows) {
-               throw new Error(`El lote ${item.batchNo} no está disponible para la venta en la tienda seleccionada`)
-             }
+        } else if (batchAllocations.length > 0) {
+            for (const batch of batchAllocations) {
+              const [batchResult] = await conn.query(
+                `UPDATE product_batches
+                 SET quantity = quantity - ?
+                 WHERE product_id = ? AND batch_no = ? AND expiry_date <=> ? AND warehouse_id = ? AND quantity >= ?`,
+                [batch.quantity, item.productId, batch.batchNo, batch.expiryDate, saleWarehouseId, batch.quantity]
+              )
+              if (!batchResult.affectedRows) {
+                throw new Error(`El lote ${batch.batchNo} no está disponible para la venta en la tienda seleccionada`)
+              }
+            }
         }
 
         // Registrar movimiento de inventario (SALE)
@@ -481,7 +596,7 @@ router.post('/', authMiddleware, async (req, res) => {
             quantity: item.quantity,
             referenceId: saleId,
             userId: req.user?.id,
-            notes: `Venta #${saleResult.insertId}`
+            notes: `Venta #${saleResult.insertId}${batchAllocations.length > 0 ? ` ${batchAllocations.map(batch => `(Lote: ${batch.batchNo}${batch.expiryDate ? ` Vence: ${batch.expiryDate}` : ''} x${batch.quantity})`).join(' ')}` : ''}`
         }, conn)
       }
 
@@ -780,6 +895,27 @@ router.post('/:id/cancel', authMiddleware, async (req, res) => {
           )
           if (!imeiRestore.affectedRows) {
             throw new Error(`No se pudo reactivar el IMEI ${item.imei} al cancelar la venta`)
+          }
+        } else if (item.batch_no) {
+          const restoreWarehouseId = Number(sale.warehouse_id || getUserWarehouseId(req.user) || 0)
+          const [existingBatchRows] = await conn.query(
+            `SELECT id
+             FROM product_batches
+             WHERE product_id = ? AND batch_no = ? AND expiry_date <=> ? AND warehouse_id = ?
+             LIMIT 1`,
+            [item.product_id, item.batch_no, item.expiry_date || null, restoreWarehouseId]
+          )
+
+          if (Array.isArray(existingBatchRows) && existingBatchRows.length > 0) {
+            await conn.query(
+              'UPDATE product_batches SET quantity = quantity + ? WHERE id = ?',
+              [item.quantity, existingBatchRows[0].id]
+            )
+          } else {
+            await conn.query(
+              'INSERT INTO product_batches (product_id, batch_no, expiry_date, quantity, warehouse_id) VALUES (?, ?, ?, ?, ?)',
+              [item.product_id, item.batch_no, item.expiry_date || null, item.quantity, restoreWarehouseId]
+            )
           }
         }
 
